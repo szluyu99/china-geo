@@ -895,3 +895,46 @@ dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2p
 .about-links span { color: var(--dim); }
 
 .review .r-item .why { display: block; margin-top: 6px; font-size: 12px; line-height: 1.7; color: var(--dim); }
+
+/* ---------------- 七视图：窄屏收起序号 ---------------- */
+@media (max-width: 1360px) {
+  .tab i { display: none; }
+  .tab { gap: 0; }
+}
+
+/* ---------------- 五步导览 ---------------- */
+.tour {
+  position: fixed; left: 50%; bottom: 26px; z-index: 60;
+  width: min(560px, calc(100vw - 40px));
+  transform: translate(-50%, 14px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .26s ease, transform .26s ease;
+  padding: 16px 18px 14px;
+  border-radius: 14px;
+  border: 1px solid rgb(var(--gold-rgb) / .32);
+  background: rgb(var(--surface-rgb) / .94);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+.tour.is-on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.tour-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.tour-step { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .2em; color: var(--gold-2); text-transform: uppercase; }
+.tour-dots { display: flex; gap: 5px; }
+.tour-dots i { width: 14px; height: 2px; border-radius: 2px; background: rgb(var(--ink-rgb) / .16); }
+.tour-dots i.on { background: var(--gold); }
+.tour h4 { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--ink); margin: 0 0 6px; letter-spacing: .02em; }
+.tour p { font-size: 12.5px; line-height: 1.75; color: var(--muted); margin: 0; }
+.tour p b { color: var(--ink-soft); font-weight: 500; }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 13px; }
+.tour-actions .spacer { flex: 1; }
+.tour-btn {
+  appearance: none; cursor: pointer;
+  font-family: var(--font-sans); font-size: 12px; letter-spacing: .04em;
+  padding: 7px 13px; border-radius: 8px;
+  border: 1px solid rgb(var(--ink-rgb) / .14);
+  background: transparent; color: var(--muted);
+  transition: color .18s ease, border-color .18s ease, background .18s ease;
+}
+.tour-btn:hover { color: var(--ink); border-color: rgb(var(--gold-rgb) / .38); }
+.tour-btn.primary { background: rgb(var(--gold-rgb) / .14); border-color: rgb(var(--gold-rgb) / .45); color: var(--gold-2); }
+.tour-btn.primary:hover { background: rgb(var(--gold-rgb) / .22); color: var(--ink); }

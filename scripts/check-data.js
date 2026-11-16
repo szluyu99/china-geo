@@ -90,6 +90,27 @@ if (Array.isArray(C.profile)) {
   ok(C.profile.every((p) => p[0] > 70 && p[0] < 140 && p[1] >= 0 && p[1] < 9000), '剖面采样点越界');
 }
 
+// 城市 / 农业 / 拼音
+const cities = C.cities || [];
+ok(cities.length >= 40, `城市点不足 40 个，实际 ${cities.length}`);
+for (const c of cities) {
+  ok(!!c.name && !!c.prov, '城市点缺少 name/prov');
+  ok(Array.isArray(c.coord) && c.coord[0] > 70 && c.coord[0] < 140 && c.coord[1] > 15 && c.coord[1] < 55, `城市 ${c.name} 的坐标越界`);
+  ok(P.some((p) => p.short === c.prov || p.name.startsWith(c.prov)), `城市 ${c.name} 所属省份不存在：${c.prov}`);
+}
+const crops = C.crops || [];
+ok(crops.length === 7, `作物应为 7 种，实际 ${crops.length}`);
+for (const c of crops) {
+  ok(/^#[0-9a-f]{6}$/i.test(c.color), `作物 ${c.name} 的颜色不是 hex`);
+  ok(Array.isArray(c.provinces) && c.provinces.length > 0, `作物 ${c.name} 没有关联省份`);
+  for (const n of c.provinces) ok(P.some((p) => p.name === n), `作物 ${c.name} 关联了不存在的省份 ${n}`);
+}
+for (const p of P) {
+  ok(Array.isArray(p.capCoord) && p.capCoord[0] > 70 && p.capCoord[0] < 140, `${p.name} 缺少 capCoord`);
+  ok(typeof p.py === 'string' && p.py.length >= 4, `${p.name} 缺少拼音`);
+}
+ok(C.agriLine && Array.isArray(C.agriLine.path) && C.agriLine.path.length >= 5, 'agriLine 折线缺失');
+
 // 图形：34 个省 + 1 条九段线
 const shapes = (G.features || []).filter((f) => f.kind === 'province');
 ok(shapes.length === 34, `geo.js 里应有 34 个省级图形，实际 ${shapes.length}`);

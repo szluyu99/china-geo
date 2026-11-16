@@ -16,12 +16,14 @@
   const REGION_ORDER = ['华北', '东北', '华东', '华中', '华南', '西南', '西北'];
   const CLIM = Object.fromEntries(C.climates.map((c) => [c.id, c]));
   const STEP = Object.fromEntries(C.steps.map((s) => [s.id, s]));
+  const CROPS = C.crops || [];
+  const CROP_BY_ID = Object.fromEntries(CROPS.map((c) => [c.id, c]));
   const PROV_BY_NAME = Object.fromEntries(C.provinces.map((p) => [p.name, p]));
 
   const state = {
     tab: 'explore',
     fill: 'region',
-    layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false },
+    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false },
     selected: null,
     hover: null,
     hoverMountain: null,
@@ -53,6 +55,7 @@
     stepLine: 'rgba(243,232,211,0.5)',
     qin: 'rgba(127,212,193,0.85)', qinText: 'rgba(150,230,212,0.95)',
     hu: 'rgba(224,192,122,0.55)', huText: 'rgba(232,206,150,0.9)',
+    agri: 'rgba(120,190,170,0.62)',
     riverCasing: 'rgba(4,10,14,0.55)', riverActive: 'rgba(255,255,255,0.55)',
     mtn: 'rgba(232,206,150,0.82)', mtnActive: '#f6d79b', mtnShadow: 'rgba(0,0,0,0.6)',
     sel: 'rgba(255,214,140,0.95)', selGlow: 'rgba(255,196,110,0.55)',
@@ -80,6 +83,7 @@
     stepLine: 'rgba(120,95,58,0.55)',
     qin: 'rgba(32,122,104,0.85)', qinText: 'rgba(22,104,88,0.95)',
     hu: 'rgba(150,105,35,0.55)', huText: 'rgba(128,90,22,0.95)',
+    agri: 'rgba(46,132,112,0.62)',
     riverCasing: 'rgba(255,255,255,0.62)', riverActive: 'rgba(20,60,90,0.45)',
     mtn: 'rgba(150,112,52,0.9)', mtnActive: '#8a5f14', mtnShadow: 'rgba(80,60,30,0.25)',
     sel: 'rgba(150,102,20,0.95)', selGlow: 'rgba(196,146,52,0.42)',
@@ -106,6 +110,7 @@
     grid: 'rgba(60,90,120,0.10)', gridText: 'rgba(70,95,118,0.45)', seaText: 'rgba(44,96,126,0.34)',
     qin: 'rgba(18,118,100,0.85)', qinText: 'rgba(12,98,84,0.95)',
     hu: 'rgba(160,105,25,0.55)', huText: 'rgba(136,86,14,0.95)',
+    agri: 'rgba(34,120,104,0.62)',
     riverCasing: 'rgba(255,255,255,0.7)', riverActive: 'rgba(16,58,88,0.45)',
     insetBg: 'rgba(255,255,255,0.9)', insetLand: 'rgba(118,124,130,0.42)',
     halo: 'rgba(250,252,254,0.9)', vignette: 'rgba(90,110,130,0.14)',
@@ -371,6 +376,10 @@
     const a = (x) => Math.min(x * TH.fillBoost, 0.94);
     if (state.fill === 'step') return hexA(tone(STEP[p.step].color), a(0.78));
     if (state.fill === 'climate') return hexA(tone(CLIM[p.climate].color), a(0.72));
+    if (state.fill === 'crop') {
+      const c = CROP_BY_ID[p.crop];
+      return hexA(tone(c ? c.color : '#8a8f93'), a(0.76));
+    }
     return hexA(tone(C.regions[p.region].color), a(0.72));
   }
   function hexA(hex, a) {
@@ -407,7 +416,8 @@
       const p = PROV_BY_NAME[s.name];
       if (!p) continue;
       const dim = state.dimOthers && state.dimOthers !== p[dimKey()] ? 0.18 : 1;
-      const cc = state.highlightClimate && state.highlightClimate !== p.climate ? 0.16 : 1;
+      const cc = state.highlightClimate && state.highlightClimate !== p.climate ? 0.16
+        : (state.highlightCrop && !((CROP_BY_ID[state.highlightCrop] || {}).provinces || []).includes(p.name) ? 0.14 : 1);
       const isHover = state.hover === s.name;
       ctx.globalAlpha = reveal * Math.min(dim, cc) * (isHover ? 1 : 0.98);
       ctx.fillStyle = provColor(p);
@@ -443,7 +453,7 @@
     return [
       W, H, DPR, state.view.k.toFixed(5), state.view.tx.toFixed(2), state.view.ty.toFixed(2),
       state.tab, state.theme, state.fill, JSON.stringify(state.layers),
-      state.dimOthers || '', state.highlightClimate || '', state.selected || '',
+      state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', state.selected || '',
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
       state.forceLabelsUntil > performance.now() ? 1 : 0,
@@ -587,6 +597,7 @@
     if (state.tab === 'quiz') return;
     const showQin = state.layers.lines || state.tab === 'climate' || state.fill === 'climate';
     const showHu = state.layers.lines && state.tab !== 'water';
+    const showAgri = state.tab === 'agri';
     ctx.save();
     ctx.lineWidth = 1.4 / (baseS * state.view.k);
     ctx.setLineDash([7 / (baseS * state.view.k), 5 / (baseS * state.view.k)]);
@@ -594,6 +605,15 @@
       ctx.strokeStyle = TH.qin;
       ctx.beginPath();
       C.lines.qinling.path.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    if (showAgri && C.agriLine) {
+      ctx.strokeStyle = TH.agri || TH.hu;
+      ctx.beginPath();
+      C.agriLine.path.forEach(([lon, lat], i) => {
         const [x, y] = albers(lon, lat);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
@@ -730,7 +750,7 @@
       ctx.font = '10px ' + FONT_SANS;
       for (const p of C.provinces) {
         if (p.capital === '—') continue;
-        const [x, y] = albers(p.coord[0], p.coord[1]);
+        const [x, y] = albers(p.capCoord[0], p.capCoord[1]);
         const px = sx(x), py = sy(y);
         if (px < 0 || px > W || py < 0 || py > H) continue;
         ctx.beginPath();
@@ -804,7 +824,25 @@
       }
     }
 
+    // 主要城市（省会之外）
+    if (state.layers.cities) {
+      for (const c of (C.cities || [])) {
+        const [x, y] = albers(c.coord[0], c.coord[1]);
+        const px = sx(x), py = sy(y);
+        if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = TH.cityDot || TH.capDot;
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        drawText(c.name, px + 4.5, py + 0.5, {
+          font: '9.5px ' + FONT_SANS, color: TH.cityText || TH.capText, align: 'left', base: 'middle', halo: true
+        });
+      }
+    }
   }
+
 
   function labelLine(line, text, color, t) {
     const idx = clamp(Math.floor(line.path.length * t), 1, line.path.length - 1);
@@ -839,8 +877,10 @@
     let x0 = o.align === 'left' ? x : o.align === 'right' ? x - w : x - w / 2;
     const rect = { x: x0 - pad, y: y - 8, w: w + pad * 2, h: 16 };
     if (o.id !== 'line' && o.id !== 'step' && o.id !== 'river') {
+      // 留 1px 间隙：贴边也当作重叠，标签不会挤在一起
+      const M = 1;
       for (const r of labelRects) {
-        if (!(rect.x + rect.w < r.x || rect.x > r.x + r.w || rect.y + rect.h < r.y || rect.y > r.y + r.h)) {
+        if (!(rect.x + rect.w + M < r.x || rect.x > r.x + r.w + M || rect.y + rect.h + M < r.y || rect.y > r.y + r.h + M)) {
           DEBUG.rejects++;
           ctx.restore();
           return false;
@@ -848,7 +888,7 @@
       }
     }
     labelRects.push(rect);
-    if (DEBUG.labels.length < 200) DEBUG.labels.push({ t: text, id: o.id || '', x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) });
+    if (DEBUG.labels.length < 200) DEBUG.labels.push({ t: text, id: o.id || '', x: +rect.x.toFixed(2), y: +rect.y.toFixed(2), w: +rect.w.toFixed(2), h: +rect.h.toFixed(2) });
     if (o.leader) {
       ctx.strokeStyle = TH.leader;
       ctx.lineWidth = 1;
@@ -995,6 +1035,17 @@
     for (const t of TINY()) {
       const d = Math.hypot(t.x - px, t.y - py);
       if (d < bd) { bd = d; best = t.name; }
+    }
+    return best;
+  }
+
+  function cityAt(px, py) {
+    if (!state.layers.cities) return null;
+    let best = null, bd = 9;
+    for (const c of (C.cities || [])) {
+      const [x, y] = albers(c.coord[0], c.coord[1]);
+      const d = Math.hypot(sx(x) - px, sy(y) - py);
+      if (d < bd) { bd = d; best = c; }
     }
     return best;
   }
@@ -1212,6 +1263,15 @@
       }
       return;
     }
+    if (state.layers.cities) {
+      const c = cityAt(ox, oy);
+      if (c) {
+        if (state.hoverMountain || state.hoverRiver) { state.hoverMountain = null; state.hoverRiver = null; requestDraw(); }
+        canvas.classList.add('is-pointing');
+        showTip(ox, oy, c.name, [c.prov, c.note]);
+        return;
+      }
+    }
     const name = provinceAt(clientX, clientY);
     if (state.hoverMountain || state.hoverRiver) {
       state.hoverMountain = null; state.hoverRiver = null; requestDraw();
@@ -1317,6 +1377,7 @@
     if (state.tab === 'landform') return renderLandform();
     if (state.tab === 'climate') return renderClimate();
     if (state.tab === 'water') return renderWater();
+    if (state.tab === 'agri') return renderAgri();
     return renderExplore();
   }
 
@@ -1464,6 +1525,34 @@
       b.onclick = () => {
         const id = b.dataset.clim;
         state.highlightClimate = state.highlightClimate === id ? null : id;
+        renderPanel(); requestDraw();
+      };
+    });
+  }
+
+  function renderAgri() {
+    const hl = state.highlightCrop;
+    const rows = CROPS.map((c) => {
+      const n = c.provinces.length;
+      return `<button class="list-item ${hl === c.id ? 'is-on' : ''}" data-crop="${c.id}">
+        <span class="li-top"><span class="li-dot" style="background:${swatch(c.color)}"></span>
+          <span class="li-name">${c.name}</span><span class="li-tag">${c.key}</span></span>
+        <span class="li-desc">${c.note}</span>
+      </button>`;
+    }).join('');
+    const active = hl ? CROP_BY_ID[hl] : null;
+    panel.innerHTML = `
+      <div class="eyebrow">农业</div>
+      <h2>种什么，看水土</h2>
+      <p class="lead">400 mm 年等降水量线把国土分成两半：以东以南种庄稼，以西以北放牛羊。热量再细分熟制——东北一年一熟，华北两年三熟，长江以南一年两熟到三熟，海南可以一年三熟。</p>
+      <div class="list" id="cropList">${rows}</div>
+      ${active ? `<div class="note-box"><b>${active.name}的主要产区：</b>${active.provinces.join('、')}。</div>` : ''}
+      <div class="note-box"><b>400 mm 线：</b>${C.agriLine.note}</div>
+      <div class="note-box"><b>读图提示：</b>地图按「主导作物」给省份着色，实际一省常同时种好几样——比如江苏既产稻米也产小麦，新疆既有棉花也有小麦。</div>`;
+    panel.querySelectorAll('[data-crop]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.crop;
+        state.highlightCrop = state.highlightCrop === id ? null : id;
         renderPanel(); requestDraw();
       };
     });
@@ -1962,11 +2051,12 @@
      控件与 Tab
      ------------------------------------------------------------ */
   const TAB_PRESET = {
-    explore: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
-    landform: { fill: 'step', layers: { labels: true, capitals: false, mountains: true, rivers: false, lines: false }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
+    explore: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
+    landform: { fill: 'step', layers: { labels: true, capitals: false, cities: false, mountains: true, rivers: false, lines: false }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
     climate: { fill: 'climate', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
-    water: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: true, lines: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
-    quiz: { fill: 'region', layers: { labels: false, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
+    water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
+    quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
     notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: [], tip: '' }
   };
 
@@ -1992,6 +2082,7 @@
       state.preQuizLayers = null;
     }
     state.highlightClimate = null;
+    state.highlightCrop = null;
     state.dimOthers = null;
     state.selected = null;
     state.selectedRiver = null;
@@ -2047,6 +2138,11 @@
       box.innerHTML = C.steps.map((s) => `<div class="legend-row"><span class="sw" style="background:${swatch(s.color)}"></span>${s.name}<small>${s.elev}</small></div>`).join('');
       return;
     }
+    if (state.fill === 'crop') {
+      note.textContent = '主导作物';
+      box.innerHTML = CROPS.map((c) => `<div class="legend-row"><span class="sw" style="background:${swatch(c.color)}"></span>${c.name}<small>${c.key}</small></div>`).join('');
+      return;
+    }
     if (state.fill === 'climate') {
       note.textContent = '气候';
       box.innerHTML = C.climates.map((c) => `<div class="legend-row"><span class="sw" style="background:${swatch(c.color)}"></span>${c.name}<small>${c.key.split(' · ')[0]}</small></div>`).join('');
@@ -2086,7 +2182,10 @@
     if (!q) { results.innerHTML = ''; results.hidden = true; return; }
     const hits = [];
     for (const p of C.provinces) {
-      if (p.name.includes(q) || p.label.includes(q) || p.short === q || (p.capital !== '—' && p.capital.includes(q))) {
+      const ql = q.toLowerCase();
+      const pyWords = (p.py || '').split(' ');
+      const pyHit = ql.length >= 2 && (pyWords.some((w) => w.startsWith(ql)) || (ql.length >= 3 && pyWords.some((w) => w.includes(ql))));
+      if (p.name.includes(q) || p.label.includes(q) || p.short === q || (p.capital !== '—' && p.capital.includes(q)) || pyHit) {
         hits.push({ kind: '省份', name: p.name, sub: `${p.short} · ${p.capital}`, act: () => { setTab('explore'); selectProvince(p.name, true); } });
       }
     }
@@ -2114,6 +2213,96 @@
   search.addEventListener('input', doSearch);
   search.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const f = results.querySelector('button'); if (f) f.click(); } });
 
+  /* ------------------------------------------------------------
+     五步导览
+     ------------------------------------------------------------ */
+  const TOUR_KEY = 'cn-geo:tour:v1';
+  const TOUR = [
+    {
+      title: '先看三级阶梯',
+      body: '中国地势西高东低，像三级台阶：青藏高原平均 4000 米以上，中部高原盆地 1000–2000 米，东部平原丘陵 500 米以下。<b>大江大河都顺着这个坡度向东流。</b>',
+      run() { setTab('landform'); resetView(); }
+    },
+    {
+      title: '400 mm 线：种庄稼还是放牛羊',
+      body: '这条虚线大致沿大兴安岭—张家口—兰州—拉萨。<b>线以东以南降水多，种庄稼；以西以北干旱，以放牧为主。</b>新疆的棉田、内蒙古的草原，就分在线的两侧。',
+      run() { setTab('agri'); resetView(); }
+    },
+    {
+      title: '季风把雨带到这里',
+      body: '夏季风从太平洋、印度洋吹来，降水由东南沿海向西北内陆递减。<b>秦岭—淮河一线</b>既是 1 月 0℃ 等温线，也是南方与北方的分界。',
+      run() { setTab('climate'); resetView(); }
+    },
+    {
+      title: '大江东去',
+      body: '长江、黄河都发源于青藏高原，自西向东注入太平洋。点图上任意一条河，能看到它的源头、入海口和沿途省区。',
+      run() { setTab('water'); resetView(); }
+    },
+    {
+      title: '最后，找到你的省',
+      body: '点击地图上的省份，右侧会给出地形、气候、面积、人口与排名。<b>也可以用右上角搜索「四川」，或者直接打拼音「sc」。</b>',
+      run() { setTab('explore'); state.layers.labels = true; requestDraw(); }
+    }
+  ];
+
+  let tourIdx = -1;
+  const tourEl = document.createElement('div');
+  tourEl.className = 'tour';
+  tourEl.setAttribute('role', 'dialog');
+  tourEl.setAttribute('aria-label', '五步导览');
+  document.body.appendChild(tourEl);
+
+  function tourRender() {
+    const st = TOUR[tourIdx];
+    tourEl.innerHTML = `
+      <div class="tour-head">
+        <span class="tour-step">导览 ${tourIdx + 1} / ${TOUR.length}</span>
+        <span class="tour-dots">${TOUR.map((_, i) => `<i class="${i <= tourIdx ? 'on' : ''}"></i>`).join('')}</span>
+      </div>
+      <h4>${st.title}</h4>
+      <p>${st.body}</p>
+      <div class="tour-actions">
+        <button class="tour-btn" data-act="skip">跳过</button>
+        <span class="spacer"></span>
+        ${tourIdx > 0 ? '<button class="tour-btn" data-act="prev">上一步</button>' : ''}
+        <button class="tour-btn primary" data-act="next">${tourIdx === TOUR.length - 1 ? '开始探索' : '下一步'}</button>
+      </div>`;
+    tourEl.querySelectorAll('[data-act]').forEach((b) => {
+      b.onclick = () => {
+        const a = b.dataset.act;
+        if (a === 'skip') return endTour();
+        if (a === 'prev') return tourGo(tourIdx - 1);
+        if (tourIdx >= TOUR.length - 1) return endTour();
+        tourGo(tourIdx + 1);
+      };
+    });
+    tourEl.classList.add('is-on');
+  }
+
+  function tourGo(i) {
+    tourIdx = Math.max(0, Math.min(TOUR.length - 1, i));
+    TOUR[tourIdx].run();
+    tourRender();
+  }
+
+  function startTour() { tourGo(0); }
+
+  function endTour() {
+    tourEl.classList.remove('is-on');
+    tourIdx = -1;
+    try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) {}
+  }
+
+  $('#tourBtn').onclick = () => startTour();
+
+  // 首次来访自动播放（有深链接参数时不打扰）
+  const tourBootSearch = location.search;
+  setTimeout(() => {
+    try {
+      if (!tourBootSearch && !localStorage.getItem(TOUR_KEY) && tourIdx < 0) startTour();
+    } catch (e) {}
+  }, 1200);
+
   $$('#tabs .tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
 
   window.addEventListener('keydown', (e) => {
@@ -2122,6 +2311,7 @@
 
     if (e.key === 'Escape') {
       if (typing) { t.blur(); return; }
+      if (tourIdx >= 0) { endTour(); return; }
       state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
       renderPanel(); requestDraw(); syncURL();
       return;

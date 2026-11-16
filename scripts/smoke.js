@@ -108,6 +108,14 @@ class CDP {
 
     await cdp.send('Page.navigate', { url: target });
     await cdp.waitFor('window.__DBG && window.__DBG.DEBUG.labels.length > 0', 20000);
+    // 首次来访会弹五步导览，先关掉，避免它改视图影响断言
+    await cdp.eval(`
+      const sk = document.querySelector('.tour.is-on [data-act="skip"]');
+      if (sk) sk.click();
+      try { localStorage.setItem('cn-geo:tour:v1', '1'); } catch (e) {}
+      return 1;
+    `);
+    await sleep(250);
     await sleep(600);
 
     const base = await cdp.eval(`
@@ -123,12 +131,12 @@ class CDP {
     ok(base.canvas, '地图画布没有尺寸');
     ok(base.labels >= 28, '省份标签缺失', base.labels);
     ok(base.overlaps === 0, '省份标签重叠', base.overlaps);
-    ok(base.tabs === 6, '视图数量不对', base.tabs);
+    ok(base.tabs === 7, '视图数量不对', base.tabs);
     ok(base.themes === 3, '主题数量不对', base.themes);
     ok(base.overflow, '出现横向溢出');
 
     // 六个视图：标签不重叠
-    for (const t of ['landform', 'climate', 'water', 'notes', 'quiz', 'explore']) {
+    for (const t of ['landform', 'climate', 'agri', 'water', 'notes', 'quiz', 'explore']) {
       await cdp.eval(`document.querySelector('#tabs .tab[data-tab="${t}"]').click(); return 1;`);
       await sleep(350);
       const o = await cdp.eval(`return { ov: window.__DBG.overlaps().n, tab: window.__DBG.state.tab };`);
@@ -164,6 +172,28 @@ class CDP {
     `);
     ok(search >= 1, '搜索「长江」没有结果');
 
+    // 拼音搜索
+    const py = await cdp.eval(`
+      const inp = document.querySelector('#search');
+      inp.value = 'sc';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 200));
+      const b = document.querySelector('#searchResults button');
+      return { n: document.querySelectorAll('#searchResults button').length, t: b ? b.textContent : '' };
+    `);
+    ok(py.n >= 1 && /四川/.test(py.t), '拼音搜索 sc 没命中四川省', py);
+
+    // 城市图层
+    const city = await cdp.eval(`
+      const cb = document.querySelector('[data-layer="cities"]');
+      cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400));
+      return { on: window.__DBG.state.layers.cities, n: window.__DBG.DEBUG.labels.length, ov: window.__DBG.overlaps().n };
+    `);
+    ok(city.on && city.n > 40, '城市图层没有增加标签', city);
+    ok(city.ov === 0, '城市图层开启后标签重叠', city);
+    await cdp.eval(`const cb = document.querySelector('[data-layer="cities"]'); cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true })); return 1;`);
+
     // 主题
     const bright = [];
     for (const t of ['night', 'paper', 'day']) {
@@ -188,6 +218,14 @@ class CDP {
     ok(deep.theme === 'day', '深链接 theme 没生效', deep);
     ok(deep.sel === '四川省', '深链接 p 没生效', deep);
 
+    // 深链接：农业视图
+    await cdp.send('Page.navigate', { url: target.split('?')[0] + '?tab=agri' });
+    await cdp.waitFor('window.__DBG && window.__DBG.state.tab', 20000);
+    await sleep(500);
+    const agri = await cdp.eval(`return { tab: window.__DBG.state.tab, fill: window.__DBG.state.fill, crops: document.querySelectorAll('[data-crop]').length };`);
+    ok(agri.tab === 'agri', '深链接 tab=agri 没生效', agri);
+    ok(agri.crops >= 5, '农业视图缺少作物按钮', agri);
+
     ok(cdp.errors.length === 0, '控制台有报错', cdp.errors.slice(0, 3));
   } catch (e) {
     fails.push(e.message);
@@ -201,5 +239,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/六视图/点击/搜索/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/主题/深链接');
 })();

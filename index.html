@@ -55,15 +55,17 @@
       <button class="tab is-active" data-tab="explore" role="tab" aria-selected="true"><i>01</i>概览</button>
       <button class="tab" data-tab="landform" role="tab" aria-selected="false"><i>02</i>地势</button>
       <button class="tab" data-tab="climate" role="tab" aria-selected="false"><i>03</i>气候</button>
-      <button class="tab" data-tab="water" role="tab" aria-selected="false"><i>04</i>水系</button>
-      <button class="tab" data-tab="notes" role="tab" aria-selected="false"><i>05</i>速记</button>
-      <button class="tab" data-tab="quiz" role="tab" aria-selected="false"><i>06</i>闯关</button>
+      <button class="tab" data-tab="agri" role="tab" aria-selected="false"><i>04</i>农业</button>
+      <button class="tab" data-tab="water" role="tab" aria-selected="false"><i>05</i>水系</button>
+      <button class="tab" data-tab="notes" role="tab" aria-selected="false"><i>06</i>速记</button>
+      <button class="tab" data-tab="quiz" role="tab" aria-selected="false"><i>07</i>闯关</button>
     </nav>
 
     <div class="topbar-hint">
       <span class="dot"></span> 拖拽平移 · 滚轮缩放 · 点击省份
     </div>
 
+    <button class="about-btn" id="tourBtn" title="五步导览">导览</button>
     <button class="about-btn" id="aboutBtn" aria-haspopup="dialog" aria-controls="about" title="关于与数据来源">关于</button>
 
     <div class="themer" id="themer" role="group" aria-label="配色主题">
@@ -90,6 +92,7 @@
         <div class="layers" id="layerList">
           <label><input type="checkbox" data-layer="labels" checked /><span>省份名称</span></label>
           <label><input type="checkbox" data-layer="capitals" /><span>省会城市</span></label>
+          <label><input type="checkbox" data-layer="cities" /><span>主要城市</span></label>
           <label><input type="checkbox" data-layer="mountains" /><span>主要山脉</span></label>
           <label><input type="checkbox" data-layer="rivers" /><span>主要河流</span></label>
           <label><input type="checkbox" data-layer="lines" /><span>秦岭—淮河 / 胡焕庸线</span></label>
