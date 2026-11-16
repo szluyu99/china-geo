@@ -63,7 +63,7 @@
      ------------------------------------------------------------ */
   const NIGHT = {
     sea0: '#0d1a22', sea1: '#0a1319', sea2: '#060a0e',
-    coastShadow: 'rgba(8,14,18,0.55)', coastLight: 'rgba(232,240,244,0.16)',
+    coastShadow: 'rgba(8,14,18,0.62)', coastLight: 'rgba(232,240,244,0.30)',
     grid: 'rgba(150,190,210,0.055)', gridText: 'rgba(150,190,210,0.28)', seaText: 'rgba(140,185,205,0.34)',
     stepLine: 'rgba(243,232,211,0.5)',
     qin: 'rgba(127,212,193,0.85)', qinText: 'rgba(150,230,212,0.95)',
@@ -487,8 +487,13 @@
 
     // 省界：细线，缩小时不与外边界抢眼
     const kk = baseS * state.view.k;
+    // 省界：先垫一道暗色衬边，再压一道亮线。只有亮线时，浅色主题的白线压在浅色填充上几乎看不见。
+    const bw = clamp(1.15 / Math.sqrt(state.view.k), 0.7, 1.45) / kk;
+    ctx.strokeStyle = TH.coastShadow;
+    ctx.lineWidth = bw * 1.5;
+    for (const s of provinceShapes) ctx.stroke(s.path);
     ctx.strokeStyle = TH.coastLight;
-    ctx.lineWidth = clamp(1.05 / kk, 0.35, 1.7);
+    ctx.lineWidth = bw;
     for (const s of provinceShapes) ctx.stroke(s.path);
 
     // 外边界（国界与海岸）：加粗 + 外侧投影，与内部省界拉开层级
