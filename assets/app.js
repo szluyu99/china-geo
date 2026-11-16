@@ -33,7 +33,7 @@
   const state = {
     tab: 'explore',
     fill: 'region',
-    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false },
+    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false },
     selected: null,
     hover: null,
     hoverMountain: null,
@@ -71,6 +71,7 @@
     hu: 'rgba(224,192,122,0.55)', huText: 'rgba(232,206,150,0.9)',
     agri: 'rgba(120,190,170,0.62)',
     riverCasing: 'rgba(4,10,14,0.55)', riverActive: 'rgba(255,255,255,0.55)',
+    monsoonWarm: 'rgba(226,178,102,0.9)', monsoonCold: 'rgba(120,190,224,0.9)',
     mtn: 'rgba(232,206,150,0.82)', mtnActive: '#f6d79b', mtnShadow: 'rgba(0,0,0,0.6)',
     sel: 'rgba(255,214,140,0.95)', selGlow: 'rgba(255,196,110,0.55)',
     capDot: 'rgba(255,255,255,0.9)', capDotEdge: 'rgba(12,20,26,0.9)', capText: 'rgba(233,240,244,0.9)',
@@ -100,6 +101,7 @@
     hu: 'rgba(150,105,35,0.55)', huText: 'rgba(128,90,22,0.95)',
     agri: 'rgba(46,132,112,0.62)',
     riverCasing: 'rgba(255,255,255,0.62)', riverActive: 'rgba(20,60,90,0.45)',
+    monsoonWarm: 'rgba(168,116,34,0.75)', monsoonCold: 'rgba(40,108,142,0.75)',
     mtn: 'rgba(150,112,52,0.9)', mtnActive: '#8a5f14', mtnShadow: 'rgba(80,60,30,0.25)',
     sel: 'rgba(150,102,20,0.95)', selGlow: 'rgba(196,146,52,0.42)',
     capDot: 'rgba(255,255,255,0.95)', capDotEdge: 'rgba(64,52,34,0.85)', capText: 'rgba(46,54,60,0.92)',
@@ -127,6 +129,7 @@
     hu: 'rgba(160,105,25,0.55)', huText: 'rgba(136,86,14,0.95)',
     agri: 'rgba(34,120,104,0.62)',
     riverCasing: 'rgba(255,255,255,0.7)', riverActive: 'rgba(16,58,88,0.45)',
+    monsoonWarm: 'rgba(150,104,30,0.78)', monsoonCold: 'rgba(32,98,132,0.78)',
     insetBg: 'rgba(255,255,255,0.9)', insetLand: 'rgba(118,124,130,0.42)',
     halo: 'rgba(250,252,254,0.9)', vignette: 'rgba(90,110,130,0.14)',
     profGrid: 'rgba(40,60,80,0.10)', profAxis: 'rgba(60,80,100,0.75)',
@@ -468,6 +471,10 @@
   // 前庭敏感用户：把入场与飞行都变成瞬间到位
   const motionMQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
   const reducedMotion = () => !!(motionMQ && motionMQ.matches);
+  // 系统「减少动态效果」开关在页面开着时也能生效：停下来之后再恢复，需要重新起绘制循环
+  if (motionMQ && motionMQ.addEventListener) {
+    motionMQ.addEventListener('change', () => { raf = 0; requestDraw(); });
+  }
 
   function computeBase() {
     const bw = landBBox[2] - landBBox[0], bh = landBBox[3] - landBBox[1];
@@ -532,9 +539,9 @@
       state.reveal = clamp((t - state.revealT0) / 620, 0, 1);
       dirty = true;
     }
-    if (state.tab === 'water' && state.layers.rivers) { dirty = true; }
+    if (motionOn()) dirty = true;
     if (dirty) draw();
-    if (dirty || anim || state.reveal < 1) raf = requestAnimationFrame(tick);
+    if (dirty || anim || state.reveal < 1 || motionOn()) raf = requestAnimationFrame(tick);
   }
 
   /* ------------------------------------------------------------
@@ -666,6 +673,74 @@
     ctx.drawImage(staticCanvas, 0, 0);
     drawHoverGlow();
     drawProfileMarker();
+    drawMotion();
+  }
+
+  /* ------------------------------------------------------------
+     动态层：河流流向、季风箭头（画在缓存好的静态层之上）
+     ------------------------------------------------------------ */
+  function motionOn() {
+    if (reducedMotion()) return false;
+    if (state.tab === 'water') return true;
+    if (state.tab === 'climate') return !!state.layers.monsoon;
+    return false;
+  }
+
+  const MONSOON = [
+    { pts: [[121.5, 21.0], [118.0, 25.5], [114.5, 30.0], [111.0, 34.0], [107.5, 38.0], [104.0, 41.5]], cold: false },
+    { pts: [[96.5, 17.5], [99.5, 22.0], [103.0, 26.5], [106.5, 31.0], [110.0, 35.0]], cold: false },
+    { pts: [[92.0, 49.5], [98.0, 45.0], [104.0, 40.5], [110.0, 36.0], [116.0, 31.5], [121.0, 28.0]], cold: true }
+  ].map((m) => {
+    const p2 = new Path2D();
+    m.pts.forEach(([lon, lat], i) => {
+      const [x, y] = albers(lon, lat);
+      if (i) p2.lineTo(x, y); else p2.moveTo(x, y);
+    });
+    const a = albers(...m.pts[m.pts.length - 2]);
+    const b = albers(...m.pts[m.pts.length - 1]);
+    return { p: p2, cold: m.cold, end: b, ang: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+  });
+
+  function drawMotion() {
+    if (!motionOn()) return;
+    const t = performance.now();
+    const k = baseS * state.view.k;
+    const prev = ctx;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    applyWorld(ctx);
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (state.tab === 'water') {
+      // 河流：一小段亮色沿河道往下游跑
+      ctx.strokeStyle = TH.riverActive;
+      ctx.lineWidth = 1.05 / k;
+      ctx.setLineDash([2.4 / k, 9 / k]);
+      ctx.lineDashOffset = -((t / 26) % (10000 / k));
+      for (const r of riverPaths) ctx.stroke(r.p);
+    } else {
+      // 季风：暖色 = 夏季风，冷色 = 冬季风
+      for (const m of MONSOON) {
+        const s = m.cold ? TH.monsoonCold : TH.monsoonWarm;
+        ctx.strokeStyle = s;
+        ctx.fillStyle = s;
+        ctx.lineWidth = 1.5 / k;
+        ctx.setLineDash([9 / k, 7 / k]);
+        ctx.lineDashOffset = -((t / 55) % (1600 / k)) * (m.cold ? -1 : 1);
+        ctx.stroke(m.p);
+        // 箭头
+        const size = 5.2 / k;
+        const [ex, ey] = m.end;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - size * Math.cos(m.ang - 0.42), ey - size * Math.sin(m.ang - 0.42));
+        ctx.lineTo(ex - size * Math.cos(m.ang + 0.42), ey - size * Math.sin(m.ang + 0.42));
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    ctx = prev;
   }
 
   // 悬浮高亮单独画在最上层，避免为了换一个省份把整张地图重绘
@@ -2307,6 +2382,131 @@
   /* ------------------------------------------------------------
      知识速记
      ------------------------------------------------------------ */
+  /* ------------------------------------------------------------
+     速记页的四张示意图：共用一条真实国界轮廓，叠加不同的线
+     ------------------------------------------------------------ */
+  const FIGS = (() => {
+    const W = 300, H = 182, pad = 9;
+    const b = landBBox;
+    const s = Math.min((W - pad * 2) / (b[2] - b[0]), (H - pad * 2) / (b[3] - b[1]));
+    const ox = (W - (b[2] - b[0]) * s) / 2, oy = (H - (b[3] - b[1]) * s) / 2;
+    const xy = (lon, lat) => {
+      const [wx, wy] = albers(lon, lat);
+      return [ox + (wx - b[0]) * s, oy + (wy - b[1]) * s];
+    };
+    const parts = [];
+    for (const f of GEO.features) {
+      if (f.kind === 'line') continue;
+      for (const poly of f.polygons) {
+        for (const ring of poly) {
+          // 三沙群岛太远，会把大陆压小，这里只保留 17.2°N 以北
+          const pts = ring.filter(([, lat]) => lat >= 17.2);
+          if (pts.length < 6) continue;
+          const step = Math.max(1, Math.floor(pts.length / 70));
+          const seq = [];
+          for (let i = 0; i < pts.length; i += step) seq.push(pts[i]);
+          const seg = seq
+            .map(([lon, lat], i) => {
+              const [x, y] = xy(lon, lat);
+              return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+            })
+            .join(' ');
+          parts.push(seg + ' Z');
+        }
+      }
+    }
+    return { W, H, xy, d: parts.join(' ') };
+  })();
+
+  function figLine(pts) {
+    return pts
+      .map(([lon, lat], i) => {
+        const [x, y] = FIGS.xy(lon, lat);
+        return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(' ');
+  }
+  function figPoint(lon, lat) {
+    const [x, y] = FIGS.xy(lon, lat);
+    return { x: +x.toFixed(1), y: +y.toFixed(1) };
+  }
+  function figText(text, lon, lat, cls, dy = 0) {
+    const p = figPoint(lon, lat);
+    return `<text x="${p.x}" y="${p.y + dy}" class="${cls}">${text}</text>`;
+  }
+  function figTextA(text, lon, lat, cls) {
+    const p = figPoint(lon, lat);
+    return `<text x="${p.x}" y="${p.y}" class="${cls}" text-anchor="middle">${text}</text>`;
+  }
+
+  function knowledgeFigures() {
+    const { W, H, d } = FIGS;
+    const qin = figLine([[104.6, 34.6], [107.5, 34.1], [110.5, 33.7], [113.5, 33.3], [116.5, 33.0], [119.5, 32.6], [121.6, 32.1]]);
+    const huA = figPoint(127.4, 50.2);
+    const huB = figPoint(98.5, 25.0);
+    const div = figLine([[121.6, 50.0], [119.0, 46.5], [116.0, 43.0], [112.0, 41.0], [107.5, 39.5], [103.0, 37.5], [98.5, 35.5], [94.0, 33.5], [89.0, 32.0], [84.0, 31.0], [80.0, 30.6]]);
+
+    const panel = (title, cap, inner, label) => `
+      <figure class="k-fig">
+        <div class="kf-title">${title}</div>
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">
+          <use href="#cnOut" class="kf-land"/>
+          ${inner}
+        </svg>
+        <figcaption>${cap}</figcaption>
+      </figure>`;
+
+    return `<div class="k-figs">
+      <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+        <path id="cnOut" d="${d}"/>
+        <marker id="kfArrowWarm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#d8a657"/></marker>
+        <marker id="kfArrowCold" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5fb6d9"/></marker>
+      </defs></svg>
+      ${panel(
+        '秦岭—淮河',
+        '一月 0℃ 等温线与 800 mm 年等降水量线几乎重合，把东部切成南北两半。',
+        `<path d="${qin}" class="kf-line"/>
+         ${figTextA('北方 · 一月 &lt;0℃ · 年降水 &lt;800mm', 109.0, 39.6, 'kf-t')}
+         ${figTextA('南方 · 一月 &gt;0℃ · 年降水 &gt;800mm', 111.0, 28.2, 'kf-t')}`,
+        '中国南北分界线示意'
+      )}
+      ${panel(
+        '胡焕庸线',
+        '黑河到腾冲，一条斜线分出两种中国：东南一半国土住了九成多人。',
+        `<path d="M${huA.x} ${huA.y} L${huB.x} ${huB.y}" class="kf-line kf-dash"/>
+         <circle cx="${huA.x}" cy="${huA.y}" r="2.2" class="kf-dot"/>
+         <circle cx="${huB.x}" cy="${huB.y}" r="2.2" class="kf-dot"/>
+         ${figText('黑河', 127.4, 50.2, 'kf-t3', -5)}
+         ${figText('腾冲', 98.5, 25.0, 'kf-t3', 9)}
+         ${figTextA('东南 94% 人口', 119.0, 42.4, 'kf-t')}
+         ${figTextA('43% 国土', 119.0, 39.4, 'kf-t3')}
+         ${figTextA('西北 6% 人口', 92.0, 37.4, 'kf-t')}
+         ${figTextA('57% 国土', 92.0, 34.4, 'kf-t3')}`,
+        '胡焕庸线（黑河—腾冲线）示意'
+      )}
+      ${panel(
+        '季风',
+        '夏季风吹向陆地带来降水，冬季风从内陆吹向海洋，干冷少雨。',
+        `<path d="${figLine([[121.5, 21.0], [118.0, 25.5], [114.5, 30.0], [111.0, 34.0], [107.5, 38.0], [104.0, 41.5]])}" class="kf-arrow" marker-end="url(#kfArrowWarm)"/>
+         <path d="${figLine([[96.5, 17.5], [99.5, 22.0], [103.0, 26.5], [106.5, 31.0], [110.0, 35.0]])}" class="kf-arrow" marker-end="url(#kfArrowWarm)"/>
+         <path d="${figLine([[92.0, 49.5], [98.0, 45.0], [104.0, 40.5], [110.0, 36.0], [116.0, 31.5], [121.0, 28.0]])}" class="kf-arrow kf-cold" marker-end="url(#kfArrowCold)"/>
+         ${figText('东南季风', 118.0, 27.0, 'kf-t')}
+         ${figText('西南季风', 99.0, 24.0, 'kf-t')}
+         ${figText('冬季风', 97.0, 47.5, 'kf-t2')}`,
+        '中国季风示意'
+      )}
+      ${panel(
+        '内流区与外流区',
+        '外流区的河最终进海，内流区的河消失在盆地与沙漠里。',
+        `<path d="${div}" class="kf-line kf-dash"/>
+         ${figText('内流区', 88.0, 42.0, 'kf-t')}
+         ${figText('外流区', 113.0, 42.0, 'kf-t')}
+         ${figText('分水界', 96.0, 34.0, 'kf-t3', 0)}`,
+        '内流区与外流区分界示意'
+      )}
+    </div>`;
+  }
+
   function renderKnowledge() {
     const grid = $('#kgrid');
     const stair = `
@@ -2340,6 +2540,7 @@
         </div>
         ${stair}
       </div>
+      ${knowledgeFigures()}
       ${C.notes.map((n) => noteCard(n)).join('')}`;
   }
 
@@ -2526,13 +2727,13 @@
      控件与 Tab
      ------------------------------------------------------------ */
   const TAB_PRESET = {
-    explore: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
-    landform: { fill: 'step', layers: { labels: true, capitals: false, cities: false, mountains: true, rivers: false, lines: false, hill: true }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
-    climate: { fill: 'climate', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
-    agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, hill: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
-    water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, hill: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
-    quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
-    notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false, hill: false }, pill: [], tip: '' }
+    explore: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
+    landform: { fill: 'step', layers: { labels: true, capitals: false, cities: false, mountains: true, rivers: false, lines: false, monsoon: true, hill: true }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
+    climate: { fill: 'climate', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
+    agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
+    water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
+    quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: [], tip: '' }
   };
 
   function setTab(tab) {

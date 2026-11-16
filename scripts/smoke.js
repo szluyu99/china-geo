@@ -242,6 +242,37 @@ class CDP {
     `);
     ok(pr.printBtn, '缺少打印按钮');
 
+    // 速记页四张示意图
+    const figs = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="notes"]').click();
+      await new Promise((r) => setTimeout(r, 400));
+      const fs = [...document.querySelectorAll('.k-fig')];
+      let boxed = 0;
+      for (const f of fs) { const u = f.querySelector('use'); try { if (u.getBBox().width > 80) boxed++; } catch (e) {} }
+      return { n: fs.length, boxed, texts: document.querySelectorAll('.k-fig text').length };
+    `);
+    ok(figs.n === 4 && figs.boxed === 4, '速记页四张示意图没有画出来', figs);
+    ok(figs.texts >= 10, '示意图缺少标注', figs);
+
+    // 动态层：水系视图两帧之间画面会变
+    const anim = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="water"]').click();
+      await new Promise((r) => setTimeout(r, 700));
+      const c = document.querySelector('#map'); const g = c.getContext('2d');
+      // 无头环境里 rAF 偶尔会被节流，多试几次取最大值
+      let best = 0;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const a = g.getImageData(0, 0, c.width, c.height).data;
+        await new Promise((r) => setTimeout(r, 420));
+        const b = g.getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i+1] - b[i+1]) + Math.abs(a[i+2] - b[i+2]) > 24) n++;
+        if (n > best) best = n;
+      }
+      return { changed: best };
+    `);
+    ok(anim.changed > 200, '水系视图的河流流动没有动起来', anim);
+
     // 鼠标读数：经纬度 + 海拔
     const ro = await cdp.eval(`
       const [x, y] = window.__DBG.screen(104.07, 30.57);
@@ -360,5 +391,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/动画/主题/深链接');
 })();

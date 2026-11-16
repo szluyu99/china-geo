@@ -1022,3 +1022,44 @@ dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2p
   body[data-tab="notes"] #knowledge .kgrid { display: block; column-count: 2; column-gap: 8mm; }
   body[data-tab="notes"] #knowledge .kcard { margin: 0 0 5mm; break-inside: avoid; }
 }
+
+/* ---------------- 速记页的四张示意图 ---------------- */
+.k-figs {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 6px;
+}
+.k-fig {
+  margin: 0;
+  padding: 12px 12px 10px;
+  border: 1px solid rgb(var(--ink-rgb) / 0.08);
+  border-radius: 10px;
+  background: rgb(var(--surface-rgb) / 0.42);
+}
+.k-fig svg { display: block; width: 100%; height: auto; }
+.kf-title {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+  color: var(--gold-2);
+  margin-bottom: 6px;
+}
+.k-fig figcaption {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.kf-land { fill: rgb(var(--jade-rgb) / 0.16); stroke: rgb(var(--jade-rgb) / 0.55); stroke-width: 0.7; }
+.kf-line { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+.kf-dash { stroke-dasharray: 4 3; }
+.kf-arrow { fill: none; stroke: var(--gold); stroke-width: 1.4; stroke-dasharray: 6 3; opacity: 0.9; }
+.kf-arrow.kf-cold { stroke: var(--blue); }
+.kf-dot { fill: var(--gold); }
+.kf-t { font-size: 8px; fill: var(--paper-ink, #d9e2ea); fill: rgb(var(--ink-rgb) / 0.72); font-family: var(--font-sans); }
+.kf-t2 { font-size: 8.5px; fill: var(--gold-2); font-family: var(--font-display); }
+.kf-t3 { font-size: 7.5px; fill: rgb(var(--ink-rgb) / 0.55); font-family: var(--font-sans); }
+@media (max-width: 900px) { .k-figs { grid-template-columns: minmax(0, 1fr); } }
+@media print { .k-fig { break-inside: avoid; } .k-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
