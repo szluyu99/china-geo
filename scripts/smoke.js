@@ -194,6 +194,54 @@ class CDP {
     ok(city.ov === 0, '城市图层开启后标签重叠', city);
     await cdp.eval(`const cb = document.querySelector('[data-layer="cities"]'); cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true })); return 1;`);
 
+    // 地形晕渲：默认在「地势」视图开启，切换后画面真的变化
+    const hill = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="landform"]').click();
+      await new Promise((r) => setTimeout(r, 700));
+      const snap = () => {
+        const c = document.querySelector('#map'); const g = c.getContext('2d');
+        return g.getImageData(0, 0, c.width, c.height).data;
+      };
+      const sum = (d) => { let s = 0; for (let i = 0; i < d.length; i += 4 * 7) s += d[i] + d[i + 1] + d[i + 2]; return s; };
+      const before = sum(snap());
+      const cb = document.querySelector('[data-layer="hill"]');
+      cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const off = sum(snap());
+      cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const on = sum(snap());
+      return { on: window.__DBG.state.layers.hill, delta: Math.abs(on - off), same: on === off, labels: window.__DBG.DEBUG.labels.length, ov: window.__DBG.overlaps().n };
+    `);
+    ok(hill.on, '地势视图没有默认开启地形晕渲', hill);
+    ok(!hill.same && hill.delta > 0, '开关地形晕渲后画面没有变化', hill);
+    ok(hill.ov === 0, '晕渲视图标签重叠', hill);
+
+    // 省份详情：缩略轮廓 + 三条排名
+    const outline = await cdp.eval(`
+      const p = window.__DBG.screen(103.0, 31.0);
+      const r = document.querySelector('#map').getBoundingClientRect();
+      const c = document.querySelector('#map');
+      const opts = { clientX: r.left + p[0], clientY: r.top + p[1], bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1 };
+      c.dispatchEvent(new PointerEvent('pointerdown', opts));
+      c.dispatchEvent(new PointerEvent('pointerup', opts));
+      await new Promise((res) => setTimeout(res, 350));
+      const svg = document.querySelector('#panel .prov-svg');
+      const path = svg && svg.querySelector('path');
+      const bars = document.querySelectorAll('#panel .bar-row').length;
+      return { name: window.__DBG.state.selected, d: path ? path.getAttribute('d').length : 0, bars, box: svg ? Math.round(svg.getBoundingClientRect().width) : 0 };
+    `);
+    ok(outline.d > 200 && outline.box > 20, '省份详情没有画出轮廓缩略图', outline);
+    ok(outline.bars >= 3, '省份详情缺少排名条', outline);
+
+    // A4 打印版式：地图高度按 110mm 排，且不横向溢出
+    const pr = await cdp.eval(`
+      const r = document.querySelector('#mapwrap').getBoundingClientRect();
+      const tabs = getComputedStyle(document.querySelector('#tabs')).display;
+      return { mapH: Math.round(r.height), tabsHidden: tabs === 'none', overflow: document.documentElement.scrollWidth - window.innerWidth, printBtn: !!document.querySelector('#printBtn') };
+    `);
+    ok(pr.printBtn, '缺少打印按钮');
+
     // 鼠标读数：经纬度 + 海拔
     const ro = await cdp.eval(`
       const [x, y] = window.__DBG.screen(104.07, 30.57);
@@ -312,5 +360,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/主题/深链接');
 })();

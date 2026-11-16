@@ -33,7 +33,7 @@
   const state = {
     tab: 'explore',
     fill: 'region',
-    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false },
+    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false },
     selected: null,
     hover: null,
     hoverMountain: null,
@@ -64,6 +64,7 @@
   const NIGHT = {
     sea0: '#0d1a22', sea1: '#0a1319', sea2: '#060a0e',
     coastShadow: 'rgba(8,14,18,0.62)', coastLight: 'rgba(232,240,244,0.30)',
+    hillDark: [2, 6, 10], hillLight: [206, 222, 238], hillAlpha: 0.95,
     grid: 'rgba(150,190,210,0.055)', gridText: 'rgba(150,190,210,0.28)', seaText: 'rgba(140,185,205,0.34)',
     stepLine: 'rgba(243,232,211,0.5)',
     qin: 'rgba(127,212,193,0.85)', qinText: 'rgba(150,230,212,0.95)',
@@ -92,6 +93,7 @@
   const PAPER = {
     sea0: '#f9f3e6', sea1: '#f4ecdc', sea2: '#e9dfca',
     coastShadow: 'rgba(96,76,44,0.30)', coastLight: 'rgba(255,255,255,0.55)',
+    hillDark: [58, 42, 24], hillLight: [255, 252, 242], hillAlpha: 0.95,
     grid: 'rgba(120,100,70,0.10)', gridText: 'rgba(110,92,62,0.45)', seaText: 'rgba(60,105,125,0.34)',
     stepLine: 'rgba(120,95,58,0.55)',
     qin: 'rgba(32,122,104,0.85)', qinText: 'rgba(22,104,88,0.95)',
@@ -309,6 +311,118 @@
 
   const provinceShapes = shapes.filter((s) => s.kind === 'province');
 
+  // 陆地合成路径：晕渲裁剪用
+  const LAND_PATH = new Path2D();
+  for (const s of provinceShapes) LAND_PATH.addPath(s.path);
+
+  /* ------------------------------------------------------------
+     地形晕渲：0.25° 网格（CN_ELEV）→ 坡度坡向 → 西北光照 → 分档 Path2D
+     世界坐标与视图无关，所以顶点投影和分档只算一次，换主题只换颜色
+     ------------------------------------------------------------ */
+  const HILL = (() => {
+    if (!ELEV || !ELEV.data || !ELEV.nx) return null;
+    const nx = ELEV.nx, ny = ELEV.ny;
+    const z = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) z[j * nx + i] = elevRaw(i, j);
+    const px = new Float32Array(nx * ny), py = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const [wx, wy] = albers(ELEV.lon0 + i * ELEV.step, ELEV.lat0 + j * ELEV.step);
+        px[j * nx + i] = wx; py[j * nx + i] = wy;
+      }
+    }
+    return { nx, ny, z, px, py };
+  })();
+
+  const HILL_BANDS = 11;
+  let hillBandIdx = null, hillTex = null, hillTexTheme = null;
+
+  // 每格按坡度坡向算光照，落到 0..8 档（-1 = 海面，不画）
+  function hillBandIndex() {
+    if (hillBandIdx || !HILL) return hillBandIdx;
+    const { nx, ny, z } = HILL;
+    const idx = new Int8Array(nx * ny).fill(-1);
+    const dLat = ELEV.step * 110574;
+    const dLon = ELEV.step * 111320 * Math.cos(((ELEV.lat0 + (ny * ELEV.step) / 2) * Math.PI) / 180);
+    const LX = -0.66, LY = -0.66, LZ = 0.86; // 光从西北上方来（y 轴向南为正）
+    const lLen = Math.hypot(LX, LY, LZ);
+    const EX = 7; // 垂直夸张
+    for (let j = 1; j < ny - 1; j++) {
+      for (let i = 1; i < nx - 1; i++) {
+        const k = j * nx + i;
+        if (z[k] < -20) continue;
+        const dzdx = (z[k + 1] - z[k - 1]) / (2 * dLon);
+        const dzdy = (z[k + nx] - z[k - nx]) / (2 * dLat);
+        const ux = -dzdx * EX, uy = -dzdy * EX, uz = 1;
+        const inv = 1 / Math.hypot(ux, uy, uz);
+        const dot = ((ux * LX + uy * LY + uz * LZ) * inv) / lLen;
+        // 平地（法线朝上）时 dot = LZ/|L| ≈ 0.665，作为中性档；坡面偏离越多，明暗差越大
+        const u = (dot - 0.665) / 0.22;
+        let b = 5 + Math.round(u * 5);
+        idx[k] = b < 0 ? 0 : b > HILL_BANDS - 1 ? HILL_BANDS - 1 : b;
+      }
+    }
+    hillBandIdx = idx;
+    return idx;
+  }
+
+  // 把分档画进一张「世界坐标」纹理：只做一次（换主题时重建），之后每帧只是一次贴图
+  function hillTexture() {
+    const idx = hillBandIndex();
+    if (!idx) return null;
+    if (hillTex && hillTexTheme === state.theme) return hillTex;
+    const { nx, ny, px, py } = HILL;
+    const worldW = wb.x1 - wb.x0, worldH = wb.y1 - wb.y0;
+    const TEX_W = 1800;
+    const scale = TEX_W / worldW;
+    const cw = Math.round(TEX_W), ch = Math.round(worldH * scale);
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const g = c.getContext('2d');
+    const buckets = [];
+    for (let b = 0; b < HILL_BANDS; b++) buckets.push([]);
+    for (let j = 0; j < ny - 1; j++) {
+      for (let i = 0; i < nx - 1; i++) {
+        const b = idx[j * nx + i];
+        if (b < 0) continue;
+        const k = j * nx + i;
+        const x = (px[k] - wb.x0) * scale;
+        const y = (py[k] - wb.y0) * scale;
+        const w2 = Math.max(1.2, (px[k + 1] - px[k]) * scale) + 0.6;
+        const h2 = Math.max(1.2, (py[k + nx] - py[k]) * scale) + 0.6;
+        buckets[b].push(x, y, w2, h2);
+      }
+    }
+    const dark = TH.hillDark || [8, 12, 16];
+    const light = TH.hillLight || [220, 230, 240];
+    const amp = TH.hillAlpha == null ? 0.8 : TH.hillAlpha;
+    for (let b = 0; b < HILL_BANDS; b++) {
+      const t = b / (HILL_BANDS - 1);
+      const wgt = Math.abs(t - 0.5) * 2; // 中间档（平地）不着色
+      if (wgt < 0.04) continue;
+      const a = (Math.pow(wgt, 0.95) * amp).toFixed(3);
+      const col = t < 0.5 ? dark : light;
+      g.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      const arr = buckets[b];
+      for (let q = 0; q < arr.length; q += 4) g.fillRect(arr[q], arr[q + 1], arr[q + 2], arr[q + 3]);
+    }
+    hillTex = c;
+    hillTexTheme = state.theme;
+    return c;
+  }
+
+  function drawHillshade() {
+    if (!state.layers.hill) return;
+    const tex = hillTexture();
+    if (!tex) return;
+    ctx.save();
+    ctx.clip(LAND_PATH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tex, wb.x0, wb.y0, wb.x1 - wb.x0, wb.y1 - wb.y0);
+    ctx.restore();
+  }
+
+
   // 实际陆地外框（海南只取本岛，不含三沙群岛），用于铺满画布
   const landBBox = (() => {
     let b = [Infinity, Infinity, -Infinity, -Infinity];
@@ -484,6 +598,8 @@
       ctx.fill(s.path, 'evenodd');
     }
     ctx.globalAlpha = reveal;
+
+    drawHillshade();
 
     // 省界：细线，缩小时不与外边界抢眼
     const kk = baseS * state.view.k;
@@ -1620,13 +1736,46 @@
   }
 
   function provinceRanks(p) {
-    const areas = C.provinces.map((x) => x.area).sort((a, b) => b - a);
-    const pops = C.provinces.map((x) => x.pop).sort((a, b) => b - a);
+    const dens = (x) => x.pop / x.area;
+    const peers = C.provinces.filter((x) => x.region === p.region);
     return {
-      area: areas.indexOf(p.area) + 1,
-      pop: pops.indexOf(p.pop) + 1,
-      density: Math.round(p.pop / p.area)
+      area: 1 + C.provinces.filter((x) => x.area > p.area).length,
+      pop: 1 + C.provinces.filter((x) => x.pop > p.pop).length,
+      density: Math.round(dens(p)),
+      densityRank: 1 + C.provinces.filter((x) => dens(x) > dens(p)).length,
+      areaRegion: 1 + peers.filter((x) => x.area > p.area).length,
+      popRegion: 1 + peers.filter((x) => x.pop > p.pop).length,
+      regionSize: peers.length
     };
+  }
+
+  // 省轮廓：取面积最大的一圈环，投影后按 96×68 归一化，供面板里的小图使用
+  function outlineSvg(p) {
+    // 注意：provinceShapes 里的 shape 只有 path/bbox/centroid，没有 polygons；
+    // 原始多边形在 GEO.features 里，按名字取。
+    const feat = GEO.features.find((f) => f.name === p.name && f.kind !== 'line');
+    if (!feat || !feat.polygons) return '';
+    let best = null, bestLen = -1;
+    for (const poly of feat.polygons) {
+      for (const ring of poly) {
+        if (ring.length > bestLen) { bestLen = ring.length; best = ring; }
+      }
+    }
+    if (!best) return '';
+    const pts = best.map(([lon, lat]) => {
+      const [wx, wy] = albers(lon, lat);
+      return [wx, -wy]; // SVG 的 y 向下
+    });
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of pts) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    const W = 96, H = 68, pad = 3;
+    const s2 = Math.min((W - pad * 2) / (x1 - x0), (H - pad * 2) / (y1 - y0));
+    const ox = (W - (x1 - x0) * s2) / 2, oy = (H - (y1 - y0) * s2) / 2;
+    const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${(ox + (x - x0) * s2).toFixed(1)} ${(oy + (y - y0) * s2).toFixed(1)}`).join(' ') + ' Z';
+    return `<svg class="prov-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><path d="${d}"/></svg>`;
   }
 
   function renderPanel() {
@@ -1698,6 +1847,7 @@
         </div>
       </div>
       <h2>${esc(p.name)}</h2>
+      <div class="prov-shape">${outlineSvg(p)}<span class="sh-cap">正北朝上 · 等比例</span></div>
       <p class="lead">${esc(p.terrain)}</p>
       <div class="stat-grid">
         <div class="stat"><span class="k">面积</span><span class="v">${p.area}<small>万 km²</small></span><span class="r">全国第 ${rk.area} 位</span></div>
@@ -1706,10 +1856,15 @@
         <div class="stat"><span class="k">地势阶梯</span><span class="v" style="font-size:15px">${step.name.replace('阶梯', '')}阶梯</span><span class="r">${step.elev}</span></div>
       </div>
       <div class="bars">
-        <div class="bar-row"><span class="lab"><span>面积占比</span><b>${(p.area / 960 * 100).toFixed(2)}% 国土</b></span>
-          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.area / maxArea * 100, 1, 100)}%"></span></span></div>
-        <div class="bar-row"><span class="lab"><span>人口规模</span><b>${(p.pop / 141178 * 100).toFixed(1)}% 全国</b></span>
-          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.pop / maxPop * 100, 1, 100)}%"></span></span></div>
+        <div class="bar-row"><span class="lab"><span>面积</span><b>全国第 ${rk.area} · 本区第 ${rk.areaRegion}/${rk.regionSize}</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.area / maxArea * 100, 1, 100)}%"></span></span>
+          <span class="bar-note">${(p.area / 960 * 100).toFixed(2)}% 国土</span></div>
+        <div class="bar-row"><span class="lab"><span>人口</span><b>全国第 ${rk.pop} · 本区第 ${rk.popRegion}/${rk.regionSize}</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.pop / maxPop * 100, 1, 100)}%"></span></span>
+          <span class="bar-note">${(p.pop / 141178 * 100).toFixed(1)}% 全国</span></div>
+        <div class="bar-row"><span class="lab"><span>人口密度</span><b>全国第 ${rk.densityRank}</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${clamp(rk.density / 4000 * 100, 1, 100)}%"></span></span>
+          <span class="bar-note">${fmt(rk.density)} 人/km²</span></div>
       </div>
       <div class="chips">${p.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}
         <span class="chip is-accent">${esc(region.desc)}</span></div>
@@ -2371,18 +2526,19 @@
      控件与 Tab
      ------------------------------------------------------------ */
   const TAB_PRESET = {
-    explore: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
-    landform: { fill: 'step', layers: { labels: true, capitals: false, cities: false, mountains: true, rivers: false, lines: false }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
-    climate: { fill: 'climate', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
-    agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
-    water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
-    quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
-    notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: [], tip: '' }
+    explore: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
+    landform: { fill: 'step', layers: { labels: true, capitals: false, cities: false, mountains: true, rivers: false, lines: false, hill: true }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
+    climate: { fill: 'climate', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
+    agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, hill: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
+    water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, hill: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
+    quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false, hill: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false, hill: false }, pill: [], tip: '' }
   };
 
   function setTab(tab) {
     const prevTab = state.tab;
     state.tab = tab;
+    document.body.dataset.tab = tab;
     $$('#tabs .tab').forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle('is-active', on);
@@ -2530,6 +2686,8 @@
 
   const exportBtn = $('#exportPng');
   if (exportBtn) exportBtn.onclick = exportPng;
+  const printBtn = $('#printBtn');
+  if (printBtn) printBtn.onclick = () => window.print();
 
   // 搜索
   const search = $('#search');
@@ -2662,6 +2820,19 @@
 
   $$('#tabs .tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
 
+  let printTheme = null;
+  window.addEventListener('beforeprint', () => {
+    if (state.theme === 'night') {
+      printTheme = 'night';
+      applyTheme('paper', false);
+    }
+    // 打印版式里地图高度变成 118mm，等版面稳定后按新尺寸重算画布
+    setTimeout(() => { resize(); requestDraw(); }, 60);
+  });
+  window.addEventListener('afterprint', () => {
+    if (printTheme) { applyTheme(printTheme, false); printTheme = null; }
+  });
+
   window.addEventListener('keydown', (e) => {
     const t = e.target;
     const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -2700,6 +2871,22 @@
     state, DEBUG, shapes, provinceShapes, albers, frame, INSET,
     inv: (x, y) => ALBERS.inv(x, y), elevAt, wrongAll, readoutAt,
     redraw: () => { cachedKey = ''; requestDraw(); },
+    hill: () => {
+      const t = hillTexture();
+      if (!t) return null;
+      const g = t.getContext('2d');
+      const d = g.getImageData(0, 0, t.width, t.height).data;
+      let nz = 0, sum = 0, max = 0, tot = 0;
+      for (let i = 3; i < d.length; i += 4) {
+        tot++;
+        if (d[i] > 0) { nz++; sum += d[i]; if (d[i] > max) max = d[i]; }
+      }
+      const idx = hillBandIndex();
+      const hist = new Array(HILL_BANDS).fill(0);
+      let sea = 0;
+      for (const b of idx) { if (b < 0) sea++; else hist[b]++; }
+      return { w: t.width, h: t.height, cover: +(nz / tot).toFixed(3), avgA: nz ? +(sum / nz).toFixed(1) : 0, maxA: max, hist, sea };
+    },
     metrics: () => ({ W, H, DPR, baseS, cx, cy, wb }),
     screen: (lon, lat) => { const p = albers(lon, lat); return [sx(p[0]), sy(p[1])]; },
     w2s: (wx, wy) => [sx(wx), sy(wy)],

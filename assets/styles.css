@@ -963,3 +963,62 @@ dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2p
 
 .quiz-mode button.flat { color: var(--muted); border-style: dashed; }
 .quiz-mode button.flat:hover { color: var(--coral); border-color: rgb(var(--coral-rgb) / 0.5); }
+
+/* --- 省份面板：轮廓小图与排名条注 --- */
+.prov-shape { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.prov-svg { flex: 0 0 auto; }
+.prov-svg path { fill: rgb(var(--gold-rgb) / 0.13); stroke: var(--gold); stroke-width: 1; stroke-linejoin: round; }
+.prov-shape .sh-cap { font-size: 9.5px; letter-spacing: 0.14em; color: var(--dim); }
+.bar-note { font-family: var(--font-mono); font-size: 9.5px; color: var(--dim); letter-spacing: 0.04em; }
+
+/* --- A4 打印 --- */
+@page { size: A4 portrait; margin: 12mm 12mm 14mm; }
+
+@media print {
+  :root { color-scheme: light; }
+  html, body { background: #fff !important; }
+  body::before, .grain, .skip, #tabs, #themer, .about-btn, .searchbox, .tour,
+  .map-ctl, .readout, #scalebar, .dock-hint, .inset-cap { display: none !important; }
+  .topbar { position: static; border: 0; padding: 0 0 6mm; background: none; }
+  .brand { color: #1a1a1a; }
+  .brand .seal { border-color: #b8923f; color: #8a6a20; }
+  .brand .sub { color: #666; }
+  .stage { display: block !important; height: auto !important; }
+  #view { display: block !important; }
+  #rail { display: none !important; }
+  #view, #panel { break-inside: avoid; }
+  #mapwrap { flex: none; height: 110mm; }
+  #map { width: 100%; height: 100%; }
+  #panel {
+    width: auto; height: auto; max-height: none; overflow: visible;
+    border: 0; background: none; padding: 6mm 0 0; color: #1a1a1a;
+  }
+  #panel h2, #panel h3 { color: #111; }
+  #panel .lead, #panel .note-box, #panel .bar-row .lab,
+  #panel .stat .k, #panel .stat .r { color: #444; }
+  #panel .bar-track { background: #e6e6e6; }
+  #panel .bar-fill { background: #b8892f; animation: none; }
+  #panel .prov-svg path { fill: rgba(184, 137, 47, 0.12); stroke: #8a6a20; }
+  #panel .chips, #panel .btn, #dock { display: none !important; }
+  /* 打印版块收紧排版，尽量压到两页以内 */
+  #panel { font-size: 11.5px; line-height: 1.55; }
+  #panel h2 { font-size: 20px; margin: 0 0 3mm; }
+  #panel h3 { font-size: 13px; margin: 4mm 0 2mm; }
+  #panel .lead { font-size: 11.5px; margin: 0 0 3mm; }
+  #panel .stat-grid { gap: 6px 14px; }
+  #panel .stat .v { font-size: 19px; }
+  #panel .bars { margin-top: 3mm; }
+  #panel .bar-row { margin-bottom: 2.5mm; }
+  #panel .prov-shape { margin: 0 0 3mm; }
+
+  /* 速记页：只有停在这一页时才打印讲义，其余视图不打印 */
+  #knowledge { display: none !important; }
+  body[data-tab="notes"] .stage { display: none !important; }
+  body[data-tab="notes"] #knowledge { display: block !important; height: auto; overflow: visible; padding: 0; }
+  #knowledge .kcard { break-inside: avoid; border-color: #ddd; }
+  #knowledge .kcard h3 { color: #111; }
+  #knowledge .kbody, #knowledge .kbody * { color: #333; }
+  /* .kgrid 是 grid 容器，column-count 对它无效，打印时改成块级多栏 */
+  body[data-tab="notes"] #knowledge .kgrid { display: block; column-count: 2; column-gap: 8mm; }
+  body[data-tab="notes"] #knowledge .kcard { margin: 0 0 5mm; break-inside: avoid; }
+}
