@@ -217,10 +217,12 @@
     if (tab && TAB_PRESET[tab]) setTab(tab);
     const p = q.get('p');
     if (p && PROV_BY_NAME[p]) selectProvince(p);
+    // 只有链接里没写 tab 时，才让叠加层把视图带过去，避免 iso/bubble 互相抢
+    const explicitTab = q.get('tab');
     const iso = q.get('iso');
-    if (iso === 'jan' || iso === 'jul') { state.iso = iso; if (state.tab !== 'climate') setTab('climate'); }
+    if (iso === 'jan' || iso === 'jul') { state.iso = iso; if (!explicitTab && state.tab !== 'climate') setTab('climate'); }
     const bubble = q.get('bubble');
-    if (bubble === 'pop' || bubble === 'area') { state.bubble = bubble; if (state.tab !== 'explore') setTab('explore'); }
+    if (bubble === 'pop' || bubble === 'area') { state.bubble = bubble; if (!explicitTab && state.tab !== 'explore') setTab('explore'); }
     const river = q.get('river');
     if (river) {
       const r = C.rivers.find((x) => x.name === river);
