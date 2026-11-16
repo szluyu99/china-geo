@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>中国地理图谱 · 山河</title>
+<meta name="description" content="一张可以点、可以问、可以闯关的中国地理地图：三级阶梯、大江大河、气候与 34 个省级行政区。" />
+<meta name="color-scheme" content="dark light" />
+<meta name="theme-color" content="#070c11" />
+<script>
+  /* 尽早落主题，避免浅色用户先看到一屏黑 */
+  (function () {
+    try {
+      var p = JSON.parse(localStorage.getItem('cn-geo:prefs:v1') || 'null');
+      var t = (p && p.theme) || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'night');
+      document.documentElement.dataset.theme = t;
+      var m = document.querySelector('meta[name="theme-color"]');
+      if (m) m.content = t === 'paper' ? '#f4eee2' : t === 'day' ? '#eef2f6' : '#070c11';
+    } catch (e) {}
+  })();
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1218'/%3E%3Cpath d='M5 23l6-9 4 5 3-4 9 8z' fill='%235fbfa3' opacity='.85'/%3E%3Ccircle cx='23' cy='8' r='3' fill='%23d8a657'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="seal" aria-hidden="true"><span>山</span><span>河</span></div>
+      <div class="brand-text">
+        <h1>中国地理图谱</h1>
+        <p>三级阶梯 · 大江大河 · 34 个省级行政区</p>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist" aria-label="视图切换">
+      <button class="tab is-active" data-tab="explore" role="tab" aria-selected="true"><i>01</i>概览</button>
+      <button class="tab" data-tab="landform" role="tab" aria-selected="false"><i>02</i>地势</button>
+      <button class="tab" data-tab="climate" role="tab" aria-selected="false"><i>03</i>气候</button>
+      <button class="tab" data-tab="water" role="tab" aria-selected="false"><i>04</i>水系</button>
+      <button class="tab" data-tab="notes" role="tab" aria-selected="false"><i>05</i>速记</button>
+      <button class="tab" data-tab="quiz" role="tab" aria-selected="false"><i>06</i>闯关</button>
+    </nav>
+
+    <div class="topbar-hint">
+      <span class="dot"></span> 拖拽平移 · 滚轮缩放 · 点击省份
+    </div>
+
+    <div class="themer" id="themer" role="group" aria-label="配色主题">
+      <button data-theme="night" class="sw-night" title="夜间" aria-label="夜间主题" aria-pressed="true"></button>
+      <button data-theme="paper" class="sw-paper" title="纸白" aria-label="纸白主题" aria-pressed="false"></button>
+      <button data-theme="day" class="sw-day" title="白昼" aria-label="白昼主题" aria-pressed="false"></button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+
+    <aside class="rail" id="rail">
+      <section class="rail-block">
+        <div class="rail-title">着色方式</div>
+        <div class="seg" id="fillModes">
+          <button data-fill="region" class="is-on">地理分区</button>
+          <button data-fill="step">地势阶梯</button>
+          <button data-fill="climate">气候类型</button>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <div class="rail-title">图层</div>
+        <div class="layers" id="layerList">
+          <label><input type="checkbox" data-layer="labels" checked /><span>省份名称</span></label>
+          <label><input type="checkbox" data-layer="capitals" /><span>省会城市</span></label>
+          <label><input type="checkbox" data-layer="mountains" /><span>主要山脉</span></label>
+          <label><input type="checkbox" data-layer="rivers" /><span>主要河流</span></label>
+          <label><input type="checkbox" data-layer="lines" /><span>秦岭—淮河 / 胡焕庸线</span></label>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <div class="rail-title">查找</div>
+        <div class="searchbox">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="search" type="search" placeholder="省份 / 简称 / 省会 / 长江 / 秦岭" autocomplete="off" />
+        </div>
+        <div class="search-results" id="searchResults" hidden></div>
+      </section>
+
+      <section class="rail-block rail-legend">
+        <div class="rail-title">图例 <span id="legendNote"></span></div>
+        <div class="legend" id="legend"></div>
+      </section>
+
+      <section class="rail-block rail-foot">
+        <div class="tip" id="railTip"></div>
+      </section>
+    </aside>
+
+    <div class="view" id="view">
+      <div class="mapwrap" id="mapwrap">
+        <canvas id="map"></canvas>
+        <div class="map-top">
+          <div class="layer-pills" id="mapPills"></div>
+        </div>
+        <div class="map-ctl">
+          <button id="zoomIn" aria-label="放大">+</button>
+          <button id="zoomOut" aria-label="缩小">−</button>
+          <button id="reset" aria-label="复位">⤾</button>
+        </div>
+        <div class="scalebar" id="scalebar"><span></span><b>500 km</b></div>
+        <div class="tooltip" id="tooltip" role="status"></div>
+        <div class="empty-hint" id="emptyHint">
+          <b>从一张图开始</b>
+          <span>点击任意省份，查看它的山河、省会和家底</span>
+        </div>
+      </div>
+
+      <div class="dock" id="dock" hidden>
+        <div class="dock-head">
+          <div class="dock-title" id="dockTitle">沿北纬 30° 的地形剖面</div>
+          <div class="dock-legend" id="dockLegend"></div>
+        </div>
+        <canvas id="profile"></canvas>
+      </div>
+    </div>
+
+    <aside class="panel" id="panel">
+      <div class="panel-body" id="panelBody"></div>
+    </aside>
+
+  </main>
+
+  <section class="knowledge" id="knowledge" hidden>
+    <div class="kgrid" id="kgrid"></div>
+  </section>
+
+</div>
+
+<script src="assets/geo.js"></script>
+<script src="assets/content.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

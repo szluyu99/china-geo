@@ -1,0 +1,62 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build single-file page
+        run: node scripts/build-single.js
+
+      - name: Check the bundle is self-contained
+        run: |
+          node -e "
+            const fs = require('fs');
+            const h = fs.readFileSync('dist/china-geo.html', 'utf8');
+            const refs = h.match(/(?:src|href)=\"assets\/[^\"]+/g) || [];
+            if (refs.length) { console.error('外部资源没有被内联：', refs); process.exit(1); }
+            if (!h.includes('<canvas')) { console.error('产物里没有 canvas，页面不完整'); process.exit(1); }
+            console.log('bundle ok:', (h.length / 1024).toFixed(0) + ' KB');
+          "
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/assets
+          cp index.html _site/index.html
+          cp -r assets/. _site/assets/
+          cp dist/china-geo.html _site/china-geo.html
+          cp dist/china-geo.html _site/index.html   # 首页直接用单文件版，打开即用
+          ls -la _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,1993 @@
+/* ============================================================
+   中国地理图谱 — 应用逻辑
+   ============================================================ */
+(() => {
+  'use strict';
+
+  const C = window.CN_CONTENT;
+  const GEO = window.CN_GEO;
+  const RAD = Math.PI / 180;
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+  const fmt = (n, d = 0) => Number(n).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  const REGION_ORDER = ['华北', '东北', '华东', '华中', '华南', '西南', '西北'];
+  const CLIM = Object.fromEntries(C.climates.map((c) => [c.id, c]));
+  const STEP = Object.fromEntries(C.steps.map((s) => [s.id, s]));
+  const PROV_BY_NAME = Object.fromEntries(C.provinces.map((p) => [p.name, p]));
+
+  const state = {
+    tab: 'explore',
+    fill: 'region',
+    layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false },
+    selected: null,
+    hover: null,
+    hoverMountain: null,
+    hoverRiver: null,
+    selectedMountain: null,
+    selectedRiver: null,
+    highlightClimate: null,
+    focusLandform: null,
+    quiz: null,
+    quizMarks: {},
+    view: { k: 1, tx: 0, ty: 0 },
+    reveal: 0,
+    forceLabelsUntil: 0,
+    dimOthers: null,
+    theme: 'night',
+    layersTouched: false,
+    preQuizLayers: null
+  };
+
+
+  /* ------------------------------------------------------------
+     主题：CSS 负责界面，地图上的颜色由这里决定
+     每个主题提供同一组键，draw* 只读 TH.*
+     ------------------------------------------------------------ */
+  const NIGHT = {
+    sea0: '#0d1a22', sea1: '#0a1319', sea2: '#060a0e',
+    coastShadow: 'rgba(8,14,18,0.55)', coastLight: 'rgba(232,240,244,0.16)',
+    grid: 'rgba(150,190,210,0.055)', gridText: 'rgba(150,190,210,0.28)', seaText: 'rgba(140,185,205,0.34)',
+    stepLine: 'rgba(243,232,211,0.5)',
+    qin: 'rgba(127,212,193,0.85)', qinText: 'rgba(150,230,212,0.95)',
+    hu: 'rgba(224,192,122,0.55)', huText: 'rgba(232,206,150,0.9)',
+    riverCasing: 'rgba(4,10,14,0.55)', riverActive: 'rgba(255,255,255,0.55)',
+    mtn: 'rgba(232,206,150,0.82)', mtnActive: '#f6d79b', mtnShadow: 'rgba(0,0,0,0.6)',
+    sel: 'rgba(255,214,140,0.95)', selGlow: 'rgba(255,196,110,0.55)',
+    capDot: 'rgba(255,255,255,0.9)', capDotEdge: 'rgba(12,20,26,0.9)', capText: 'rgba(233,240,244,0.9)',
+    riverText: 'rgba(190,220,235,0.82)', riverTextActive: '#eaf7ff',
+    mtnText: 'rgba(226,206,168,0.82)', mtnTextActive: '#fbe6bd',
+    provText: 'rgba(240,246,249,0.92)', provTextActive: '#ffe4b5', stepText: 'rgba(255,255,255,0.45)',
+    leader: 'rgba(255,255,255,0.28)', halo: 'rgba(5,10,14,0.72)',
+    insetBg: 'rgba(7,12,16,0.72)', insetEdge: 'rgba(255,255,255,0.14)',
+    insetLand: 'rgba(150,172,184,0.5)', insetLandEdge: 'rgba(178,200,212,0.35)',
+    insetDash: 'rgba(216,166,87,0.62)', insetText: 'rgba(255,255,255,0.4)',
+    vignette: 'rgba(0,0,0,0.42)', quizFill: 'rgba(110,132,146,0.30)',
+    toneTo: '#000000', toneAmt: 0, fillBoost: 1,
+    profGrid: 'rgba(255,255,255,0.07)', profAxis: 'rgba(140,165,180,0.55)',
+    profAxis2: 'rgba(140,165,180,0.6)', profAxis3: 'rgba(140,165,180,0.45)', profAxis4: 'rgba(140,165,180,0.5)',
+    profGrad1: 'rgba(240,201,135,0.55)', profGrad2: 'rgba(200,160,110,0.35)', profGrad3: 'rgba(95,120,110,0.10)',
+    profLine: 'rgba(244,214,160,0.95)', profCross: 'rgba(255,255,255,0.22)',
+    profDot: '#f6d79b', profDot2: '#f0c987', profLabel: 'rgba(233,240,244,0.78)', profHover: 'rgba(216,166,87,0.5)'
+  };
+
+  const PAPER = {
+    sea0: '#f9f3e6', sea1: '#f4ecdc', sea2: '#e9dfca',
+    coastShadow: 'rgba(96,76,44,0.30)', coastLight: 'rgba(255,255,255,0.55)',
+    grid: 'rgba(120,100,70,0.10)', gridText: 'rgba(110,92,62,0.45)', seaText: 'rgba(60,105,125,0.34)',
+    stepLine: 'rgba(120,95,58,0.55)',
+    qin: 'rgba(32,122,104,0.85)', qinText: 'rgba(22,104,88,0.95)',
+    hu: 'rgba(150,105,35,0.55)', huText: 'rgba(128,90,22,0.95)',
+    riverCasing: 'rgba(255,255,255,0.62)', riverActive: 'rgba(20,60,90,0.45)',
+    mtn: 'rgba(150,112,52,0.9)', mtnActive: '#8a5f14', mtnShadow: 'rgba(80,60,30,0.25)',
+    sel: 'rgba(150,102,20,0.95)', selGlow: 'rgba(196,146,52,0.42)',
+    capDot: 'rgba(255,255,255,0.95)', capDotEdge: 'rgba(64,52,34,0.85)', capText: 'rgba(46,54,60,0.92)',
+    riverText: 'rgba(28,72,104,0.88)', riverTextActive: '#0d3c5b',
+    mtnText: 'rgba(112,82,34,0.9)', mtnTextActive: '#6b4708',
+    provText: 'rgba(28,36,42,0.9)', provTextActive: '#6d4300', stepText: 'rgba(70,62,48,0.55)',
+    leader: 'rgba(70,58,38,0.4)', halo: 'rgba(252,248,238,0.88)',
+    insetBg: 'rgba(255,252,244,0.88)', insetEdge: 'rgba(96,76,44,0.22)',
+    insetLand: 'rgba(126,110,82,0.42)', insetLandEdge: 'rgba(96,80,52,0.38)',
+    insetDash: 'rgba(158,110,28,0.7)', insetText: 'rgba(74,62,44,0.72)',
+    vignette: 'rgba(120,98,62,0.16)', quizFill: 'rgba(120,120,112,0.22)',
+    toneTo: '#2a2118', toneAmt: 0.10, fillBoost: 1.18,
+    profGrid: 'rgba(90,76,50,0.12)', profAxis: 'rgba(96,84,62,0.75)',
+    profAxis2: 'rgba(96,84,62,0.8)', profAxis3: 'rgba(96,84,62,0.6)', profAxis4: 'rgba(96,84,62,0.65)',
+    profGrad1: 'rgba(214,166,96,0.55)', profGrad2: 'rgba(186,146,94,0.32)', profGrad3: 'rgba(110,126,110,0.10)',
+    profLine: 'rgba(160,112,32,0.95)', profCross: 'rgba(90,74,50,0.35)',
+    profDot: '#b5852a', profDot2: '#9c6f18', profLabel: 'rgba(40,46,52,0.82)', profHover: 'rgba(154,106,29,0.55)'
+  };
+
+  const DAY = Object.assign({}, PAPER, {
+    sea0: '#f8fbfd', sea1: '#f1f6fa', sea2: '#e4ebf1',
+    coastShadow: 'rgba(46,66,86,0.30)', coastLight: 'rgba(255,255,255,0.7)',
+    grid: 'rgba(60,90,120,0.10)', gridText: 'rgba(70,95,118,0.45)', seaText: 'rgba(44,96,126,0.34)',
+    qin: 'rgba(18,118,100,0.85)', qinText: 'rgba(12,98,84,0.95)',
+    hu: 'rgba(160,105,25,0.55)', huText: 'rgba(136,86,14,0.95)',
+    riverCasing: 'rgba(255,255,255,0.7)', riverActive: 'rgba(16,58,88,0.45)',
+    insetBg: 'rgba(255,255,255,0.9)', insetLand: 'rgba(118,124,130,0.42)',
+    halo: 'rgba(250,252,254,0.9)', vignette: 'rgba(90,110,130,0.14)',
+    profGrid: 'rgba(40,60,80,0.10)', profAxis: 'rgba(60,80,100,0.75)',
+    profAxis2: 'rgba(60,80,100,0.8)', profAxis3: 'rgba(60,80,100,0.6)', profAxis4: 'rgba(60,80,100,0.65)',
+    profLabel: 'rgba(30,40,50,0.82)', profCross: 'rgba(60,80,100,0.35)',
+    toneTo: '#1c242c', toneAmt: 0.08
+  });
+
+  const CANVAS = { night: NIGHT, paper: PAPER, day: DAY };
+  const META_THEME = { night: '#070c11', paper: '#f4eee2', day: '#eef2f6' };
+  let TH = NIGHT;
+
+  function mixHex(a, b, t) {
+    const h = (x) => { const v = x.replace('#', ''); return [0, 2, 4].map((i) => parseInt(v.substr(i, 2), 16)); };
+    const [r1, g1, b1] = h(a), [r2, g2, b2] = h(b);
+    const m = (x, y) => Math.round(x + (y - x) * t);
+    return '#' + [m(r1, r2), m(g1, g2), m(b1, b2)].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+  // 浅色主题里把原本为深底调的省色压深一点，避免发灰
+  const tone = (hex) => (TH.toneAmt ? mixHex(hex, TH.toneTo, TH.toneAmt) : hex);
+  const swatch = (hex) => tone(hex);
+
+  const PREF_KEY = 'cn-geo:prefs:v1';
+  function savePrefs() {
+    try {
+      localStorage.setItem(PREF_KEY, JSON.stringify({ theme: state.theme, layers: state.layers, layersTouched: state.layersTouched }));
+    } catch (e) { /* 隐私模式忽略 */ }
+  }
+  function loadPrefs() {
+    try {
+      const raw = localStorage.getItem(PREF_KEY);
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' ? o : null;
+    } catch (e) { return null; }
+  }
+
+  function applyTheme(name, persist = true) {
+    const key = CANVAS[name] ? name : 'night';
+    state.theme = key;
+    TH = CANVAS[key];
+    document.documentElement.dataset.theme = key;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', META_THEME[key]);
+    $$('#themer button').forEach((b) => {
+      const on = b.dataset.theme === key;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    renderLegend();
+    requestDraw();
+    if (persist) savePrefs();
+  }
+  /* ------------------------------------------------------------
+     Albers 等积圆锥投影（标准纬线 25°N / 47°N）
+     ------------------------------------------------------------ */
+  const albers = (() => {
+    const p1 = 25 * RAD, p2 = 47 * RAD, p0 = 35 * RAD, l0 = 105 * RAD;
+    const n = (Math.sin(p1) + Math.sin(p2)) / 2;
+    const Cc = Math.cos(p1) ** 2 + 2 * n * Math.sin(p1);
+    const rho0 = Math.sqrt(Cc - 2 * n * Math.sin(p0)) / n;
+    return (lon, lat) => {
+      const th = n * (lon * RAD - l0);
+      const rho = Math.sqrt(Math.max(Cc - 2 * n * Math.sin(lat * RAD), 1e-7)) / n;
+      return [rho * Math.sin(th), -(rho0 - rho * Math.cos(th))];
+    };
+  })();
+
+  /* ------------------------------------------------------------
+     预投影：把 GeoJSON 变成 Path2D（世界坐标 = 投影坐标）
+     ------------------------------------------------------------ */
+  const shapes = [];
+  let wb = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  (() => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const f of GEO.features) {
+      const path = new Path2D();
+      let fx0 = Infinity, fy0 = Infinity, fx1 = -Infinity, fy1 = -Infinity;
+      for (const poly of f.polygons) {
+        for (const ring of poly) {
+          for (let i = 0; i < ring.length; i++) {
+            const [x, y] = albers(ring[i][0], ring[i][1]);
+            if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
+            if (x < fx0) fx0 = x; if (x > fx1) fx1 = x;
+            if (y < fy0) fy0 = y; if (y > fy1) fy1 = y;
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+          path.closePath();
+        }
+      }
+      shapes.push({
+        name: f.name, kind: f.kind, path,
+        bbox: [fx0, fy0, fx1, fy1],
+        centroid: f.centroid ? albers(f.centroid[0], f.centroid[1]) : [fx0 + (fx1 - fx0) / 2, fy0 + (fy1 - fy0) / 2]
+      });
+    }
+    wb = { x0, y0, x1, y1 };
+  })();
+
+  const provinceShapes = shapes.filter((s) => s.kind === 'province');
+
+  // 实际陆地外框（海南只取本岛，不含三沙群岛），用于铺满画布
+  const landBBox = (() => {
+    let b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const s of provinceShapes) {
+      const bb = s.name === '海南省' ? geoBBox(108.4, 18.0, 111.2, 20.3) : s.bbox;
+      b = [Math.min(b[0], bb[0]), Math.min(b[1], bb[1]), Math.max(b[2], bb[2]), Math.max(b[3], bb[3])];
+    }
+    return b;
+  })();
+  const nineDash = shapes.find((s) => s.kind === 'line');
+  const shapeByName = Object.fromEntries(provinceShapes.map((s) => [s.name, s]));
+
+  function geoBBox(w, s, e, n) {
+    const pts = [albers(w, s), albers(w, n), albers(e, s), albers(e, n)];
+    return [
+      Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])),
+      Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))
+    ];
+  }
+
+  // 主视图取景：中国大陆 + 海南岛（南海诸岛用附图）
+  const frame = geoBBox(73.4, 17.6, 135.3, 53.8);
+
+  /* ------------------------------------------------------------
+     Canvas 基础
+     ------------------------------------------------------------ */
+  const canvas = $('#map');
+  const ctx = canvas.getContext('2d');
+  const pickCanvas = document.createElement('canvas');
+  const pickCtx = pickCanvas.getContext('2d', { willReadFrequently: true });
+  const tip = $('#tooltip');
+  const wrap = $('#mapwrap');
+
+  let W = 1, H = 1, DPR = 1, baseS = 1, cx = 0, cy = 0;
+  let dirty = true, pickDirty = true, raf = 0, anim = null;
+
+  function computeBase() {
+    const bw = landBBox[2] - landBBox[0], bh = landBBox[3] - landBBox[1];
+    baseS = Math.min((W * 0.94) / bw, (H * 0.9) / bh);
+    cx = (landBBox[0] + landBBox[2]) / 2;
+    cy = (landBBox[1] + landBBox[3]) / 2;
+  }
+
+  function resize() {
+    const r = wrap.getBoundingClientRect();
+    W = Math.max(1, r.width); H = Math.max(1, r.height);
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    pickCanvas.width = canvas.width; pickCanvas.height = canvas.height;
+    computeBase();
+    pickDirty = true;
+    requestDraw();
+    layoutProfile();
+  }
+
+  const sx = (x) => (x - cx) * baseS * state.view.k + W / 2 + state.view.tx;
+  const sy = (y) => (y - cy) * baseS * state.view.k + H / 2 + state.view.ty;
+
+  function applyWorld(ctx2) {
+    ctx2.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx2.translate(W / 2 + state.view.tx, H / 2 + state.view.ty);
+    ctx2.scale(baseS * state.view.k, baseS * state.view.k);
+    ctx2.translate(-cx, -cy);
+  }
+
+  function requestDraw() {
+    dirty = true;
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+
+  function tick(t) {
+    raf = 0;
+    if (anim) {
+      const p = clamp((t - anim.t0) / anim.ms, 0, 1);
+      const e = easeOut(p);
+      state.view.k = anim.from.k + (anim.to.k - anim.from.k) * e;
+      state.view.tx = anim.from.tx + (anim.to.tx - anim.from.tx) * e;
+      state.view.ty = anim.from.ty + (anim.to.ty - anim.from.ty) * e;
+      pickDirty = true; dirty = true;
+      if (p >= 1) anim = null;
+    }
+    if (state.reveal < 1) {
+      state.reveal = Math.min(1, state.reveal + 0.028);
+      dirty = true;
+    }
+    if (state.tab === 'water' && state.layers.rivers) { dirty = true; }
+    if (dirty) draw();
+    if (dirty || anim || state.reveal < 1) raf = requestAnimationFrame(tick);
+  }
+
+  /* ------------------------------------------------------------
+     颜色
+     ------------------------------------------------------------ */
+  const MUNI = new Set(['北京市', '天津市', '上海市', '重庆市']);
+  function capWord(p) { return p.capital === '—' ? '驻地' : (MUNI.has(p.name) ? '驻地' : '省会'); }
+  function capLabel(p) { return p.capital === '—' ? C.regions[p.region].desc : capWord(p) + ' ' + p.capital; }
+
+  function provColor(p) {
+    if (state.tab === 'quiz') return TH.quizFill;
+    const a = (x) => Math.min(x * TH.fillBoost, 0.94);
+    if (state.fill === 'step') return hexA(tone(STEP[p.step].color), a(0.78));
+    if (state.fill === 'climate') return hexA(tone(CLIM[p.climate].color), a(0.72));
+    return hexA(tone(C.regions[p.region].color), a(0.72));
+  }
+  function hexA(hex, a) {
+    const h = hex.replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+
+  /* ------------------------------------------------------------
+     主绘制
+     ------------------------------------------------------------ */
+  function draw() {
+    dirty = false;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // 海面 / 背景
+    const g = ctx.createRadialGradient(W * 0.46, H * 0.38, 0, W * 0.46, H * 0.38, Math.max(W, H) * 0.8);
+    g.addColorStop(0, TH.sea0);
+    g.addColorStop(0.62, TH.sea1);
+    g.addColorStop(1, TH.sea2);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    drawGraticule();
+    drawSeaLabels();
+
+    applyWorld(ctx);
+    ctx.lineJoin = 'round';
+    const reveal = easeOut(state.reveal);
+
+    // 省份填充
+    for (let i = 0; i < provinceShapes.length; i++) {
+      const s = provinceShapes[i];
+      const p = PROV_BY_NAME[s.name];
+      if (!p) continue;
+      const dim = state.dimOthers && state.dimOthers !== p[dimKey()] ? 0.18 : 1;
+      const cc = state.highlightClimate && state.highlightClimate !== p.climate ? 0.16 : 1;
+      const isHover = state.hover === s.name;
+      ctx.globalAlpha = reveal * Math.min(dim, cc) * (isHover ? 1 : 0.98);
+      ctx.fillStyle = provColor(p);
+      ctx.fill(s.path, 'evenodd');
+    }
+    ctx.globalAlpha = reveal;
+
+    // 省界
+    ctx.strokeStyle = TH.coastShadow;
+    ctx.lineWidth = 0.9 / (baseS * state.view.k) * 1.2;
+    for (const s of provinceShapes) ctx.stroke(s.path);
+
+    // 省界高光
+    ctx.strokeStyle = TH.coastLight;
+    ctx.lineWidth = 0.7 / (baseS * state.view.k);
+    for (const s of provinceShapes) ctx.stroke(s.path);
+
+    drawStepsBoundary();
+    drawLines();
+    drawRivers();
+    drawMountains();
+    drawSelection();
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawLabels();
+    drawInset();
+    drawVignette();
+    drawScale();
+  }
+
+  function dimKey() { return 'region'; }
+
+  function drawGraticule() {
+    ctx.save();
+    ctx.strokeStyle = TH.grid;
+    ctx.lineWidth = 1;
+    for (let lon = 70; lon <= 140; lon += 10) {
+      ctx.beginPath();
+      for (let lat = 15; lat <= 56; lat += 2) {
+        const [x, y] = albers(lon, lat);
+        const px = sx(x), py = sy(y);
+        if (lat === 15) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    for (let lat = 20; lat <= 50; lat += 10) {
+      ctx.beginPath();
+      for (let lon = 72; lon <= 136; lon += 2) {
+        const [x, y] = albers(lon, lat);
+        const px = sx(x), py = sy(y);
+        if (lon === 72) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    // 经纬度刻度
+    ctx.fillStyle = TH.gridText;
+    ctx.font = '9px ' + FONT_MONO;
+    if (state.view.k < 2.4) {
+      for (let lat = 20; lat <= 50; lat += 10) {
+        const [x, y] = albers(112, lat);
+        const px = sx(x), py = sy(y);
+        if (px > 40 && px < W - 20 && py > 20 && py < H - 20) {
+          ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+          ctx.fillText(lat + '°N', W - 12, py);
+        }
+      }
+      for (let lon = 80; lon <= 130; lon += 10) {
+        const [x, y] = albers(lon, 20.4);
+        const px = sx(x), py = sy(y);
+        if (px > 40 && px < W - 40 && py > 30 && py < H - 30) {
+          ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+          ctx.fillText(lon + '°E', px, H - 18);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  const SEA = [['渤海', 119.6, 38.9], ['黄海', 123.6, 34.6], ['东海', 125.2, 28.6]];
+  function drawSeaLabels() {
+    if (state.view.k > 2.6) return;
+    ctx.save();
+    ctx.fillStyle = TH.seaText;
+    ctx.font = 'italic 12px ' + FONT_DISPLAY;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [name, lon, lat] of SEA) {
+      const [x, y] = albers(lon, lat);
+      const px = sx(x), py = sy(y);
+      if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.fillText(name, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawStepsBoundary() {
+    if (state.tab === 'quiz' || state.tab === 'water') return;
+    if (state.tab !== 'landform' && state.fill !== 'step') return;
+    ctx.save();
+    ctx.strokeStyle = TH.stepLine;
+    ctx.lineWidth = 1.2 / (baseS * state.view.k);
+    ctx.setLineDash([6 / (baseS * state.view.k), 5 / (baseS * state.view.k)]);
+    for (const seg of STEP_LINES) {
+      ctx.beginPath();
+      seg.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  const STEP_LINES = [
+    [[74.5, 36.8], [78, 36.4], [82, 36.2], [86, 36.3], [90, 36.6], [94, 37.2], [97, 38.2], [99, 38.0], [101, 36.2], [101.5, 34.0], [101, 31.5], [100, 29.0], [99, 27.0], [98.5, 25.8]],
+    [[121.8, 53.2], [120.8, 50.5], [119.4, 47.5], [117.8, 44.5], [116.0, 41.5], [114.0, 38.5], [112.8, 35.8], [111.2, 33.2], [110.2, 31.2], [110.0, 29.0], [110.4, 27.0], [110.0, 25.8]]
+  ];
+
+  function drawLines() {
+    if (state.tab === 'quiz') return;
+    const showQin = state.layers.lines || state.tab === 'climate' || state.fill === 'climate';
+    const showHu = state.layers.lines && state.tab !== 'water';
+    ctx.save();
+    ctx.lineWidth = 1.4 / (baseS * state.view.k);
+    ctx.setLineDash([7 / (baseS * state.view.k), 5 / (baseS * state.view.k)]);
+    if (showQin) {
+      ctx.strokeStyle = TH.qin;
+      ctx.beginPath();
+      C.lines.qinling.path.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    if (showHu) {
+      ctx.strokeStyle = TH.hu;
+      ctx.beginPath();
+      C.lines.hu.path.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function riverPath(r) {
+    const path = new Path2D();
+    r.path.forEach(([lon, lat], i) => {
+      const [x, y] = albers(lon, lat);
+      if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
+    });
+    return path;
+  }
+  const riverPaths = C.rivers.map((r) => ({ ...r, p: riverPath(r) }));
+
+  function drawRivers() {
+    if (!state.layers.rivers && state.tab !== 'water') return;
+    if (state.tab === 'quiz') return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const r of riverPaths) {
+      const active = state.selectedRiver === r.name || state.hoverRiver === r.name;
+      const k = baseS * state.view.k;
+      ctx.beginPath();
+      ctx.strokeStyle = TH.riverCasing;
+      ctx.lineWidth = (r.width + 2.4) / k;
+      ctx.stroke(r.p);
+      ctx.strokeStyle = hexA(r.color, active ? 1 : 0.78);
+      ctx.lineWidth = (active ? r.width + 1.2 : r.width) / k;
+      ctx.stroke(r.p);
+      if (active) {
+        ctx.save();
+        ctx.strokeStyle = TH.riverActive;
+        ctx.lineWidth = 0.9 / k;
+        ctx.setLineDash([2 / k, 8 / k]);
+        ctx.lineDashOffset = -(performance.now() / 42) % 1000;
+        ctx.stroke(r.p);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawMountains() {
+    if (!state.layers.mountains && state.tab !== 'landform') return;
+    if (state.tab === 'quiz') return;
+    const k = state.view.k;
+    for (const m of C.mountains) {
+      const [x, y] = albers(m.coord[0], m.coord[1]);
+      const px = sx(x), py = sy(y);
+      if (px < -30 || px > W + 30 || py < -30 || py > H + 30) continue;
+      const active = state.hoverMountain === m.name || state.selectedMountain === m.name;
+      const size = active ? 6.2 : 4.6;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.lineTo(size * 0.95, size * 0.7);
+      ctx.lineTo(-size * 0.95, size * 0.7);
+      ctx.closePath();
+      ctx.fillStyle = active ? TH.mtnActive : TH.mtn;
+      ctx.shadowColor = TH.mtnShadow;
+      ctx.shadowBlur = 4;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawSelection() {
+    if (!state.selected) return;
+    const s = shapeByName[state.selected];
+    if (!s) return;
+    ctx.save();
+    const k = baseS * state.view.k;
+    ctx.strokeStyle = TH.sel;
+    ctx.lineWidth = 2.2 / k;
+    ctx.shadowColor = TH.selGlow;
+    ctx.shadowBlur = 14 / k;
+    ctx.stroke(s.path);
+    ctx.restore();
+  }
+
+  /* ---------------- 标签 ---------------- */
+  const FONT_SANS = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif';
+  const FONT_DISPLAY = '"Songti SC","Noto Serif SC",serif';
+  const FONT_MONO = '"SF Mono",ui-monospace,monospace';
+  const LABEL_OFFSET = {
+    北京市: [2, -18], 天津市: [26, 8], 上海市: [30, -2], 香港特别行政区: [26, 14],
+    澳门特别行政区: [-24, 18], 江苏省: [8, -12], 浙江省: [14, 10], 宁夏回族自治区: [-6, -6],
+    海南省: [0, 12], 台湾省: [0, 0], 河北省: [-4, 6], 安徽省: [0, 2]
+  };
+  let labelRects = [];
+  const DEBUG = { labels: [], draws: 0, attempts: 0, rejects: 0, err: null };
+
+  function drawLabels() {
+    labelRects = [];
+    DEBUG.labels = [];
+    DEBUG.attempts = 0;
+    DEBUG.rejects = 0;
+    DEBUG.draws++;
+    const k = state.view.k;
+    const quizHide = state.tab === 'quiz' && performance.now() > state.forceLabelsUntil;
+    const showProv = state.layers.labels && !quizHide;
+    const showCap = state.layers.capitals;
+    const showMtn = state.layers.mountains || state.tab === 'landform';
+    const showRiver = state.layers.rivers || state.tab === 'water';
+
+    // 线与阶梯名先画，占住位置，省名再避让
+    if (state.tab === 'climate' || state.layers.lines) {
+      labelLine(C.lines.qinling, '秦岭—淮河线', TH.qinText, 0.62);
+    }
+    if (state.layers.lines && state.tab !== 'water') {
+      labelLine(C.lines.hu, '胡焕庸线', TH.huText, 0.42);
+    }
+    if (state.tab === 'landform' || state.fill === 'step') {
+      stepLabels();
+    }
+
+    // 省会
+    if (showCap) {
+      ctx.font = '10px ' + FONT_SANS;
+      for (const p of C.provinces) {
+        if (p.capital === '—') continue;
+        const [x, y] = albers(p.coord[0], p.coord[1]);
+        const px = sx(x), py = sy(y);
+        if (px < 0 || px > W || py < 0 || py > H) continue;
+        ctx.beginPath();
+        ctx.arc(px, py, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = TH.capDot;
+        ctx.fill();
+        ctx.strokeStyle = TH.capDotEdge;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        if (k >= 1.45 || state.selected === p.name) {
+          drawText(p.capital, px + 6, py + 0.5, {
+            font: '10px ' + FONT_SANS, color: TH.capText, align: 'left', base: 'middle'
+          });
+        }
+      }
+    }
+
+    // 河流名
+    if (showRiver) {
+      ctx.font = '11px ' + FONT_DISPLAY;
+      for (const r of riverPaths) {
+        const mid = r.path[Math.floor(r.path.length * 0.5)];
+        const [x, y] = albers(mid[0], mid[1]);
+        const px = sx(x), py = sy(y);
+        if (px < 0 || px > W || py < 0 || py > H) continue;
+        const active = state.selectedRiver === r.name;
+        if (!active && k < 1.35) continue;
+        drawText(r.name, px + 8, py - 6, {
+          font: (active ? '600 12px ' : '11px ') + FONT_DISPLAY,
+          color: active ? TH.riverTextActive : TH.riverText,
+          align: 'left', base: 'middle', halo: true, id: 'river'
+        });
+      }
+    }
+
+    // 山脉名
+    if (showMtn) {
+      for (const m of C.mountains) {
+        const [x, y] = albers(m.coord[0], m.coord[1]);
+        const px = sx(x), py = sy(y);
+        if (px < 0 || px > W || py < 0 || py > H) continue;
+        const active = state.hoverMountain === m.name || state.selectedMountain === m.name;
+        if (!active && !m.major && k < 1.7) continue;
+        drawText(m.name, px + 7, py + 9, {
+          font: (active ? '600 11px ' : '10px ') + FONT_SANS,
+          color: active ? TH.mtnTextActive : TH.mtnText,
+          align: 'left', base: 'middle', halo: true, id: 'mtn'
+        });
+      }
+    }
+
+    // 省份名
+    if (showProv) {
+      const list = provinceShapes
+        .map((s) => ({ s, p: PROV_BY_NAME[s.name] }))
+        .filter((o) => o.p)
+        .sort((a, b) => (b.p.area || 0) - (a.p.area || 0));
+      for (const { s, p } of list) {
+        const px = sx(s.centroid[0]), py = sy(s.centroid[1]);
+        if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue;
+        const [ox, oy] = LABEL_OFFSET[s.name] || [0, 0];
+        const isSel = state.selected === s.name;
+        const small = (p.area || 0) < 0.3;
+        if (small && k < 1.7 && !isSel) continue;
+        drawText(p.label, px + ox, py + oy, {
+          font: (isSel ? '600 ' : '') + (k >= 1.5 ? '13px ' : '12px ') + FONT_SANS,
+          color: isSel ? TH.provTextActive : TH.provText,
+          align: 'center', base: 'middle', halo: true, id: 'prov',
+          leader: ox || oy ? [px, py] : null
+        });
+      }
+    }
+
+  }
+
+  function labelLine(line, text, color, t) {
+    const idx = clamp(Math.floor(line.path.length * t), 1, line.path.length - 1);
+    const [lon, lat] = line.path[idx];
+    const [x, y] = albers(lon, lat);
+    drawText(text, sx(x) + 8, sy(y) + 10, {
+      font: '10px ' + FONT_SANS, color, align: 'left', base: 'middle', halo: true, id: 'line'
+    });
+  }
+
+  function stepLabels() {
+    const items = [[1, 88.0, 33.5], [2, 106.0, 38.6], [3, 118.0, 33.0]];
+    for (const [id, lon, lat] of items) {
+      const [x, y] = albers(lon, lat);
+      drawText(STEP[id].name, sx(x), sy(y), {
+        font: '10px ' + FONT_SANS,
+        color: TH.stepText,
+        align: 'center', base: 'middle', halo: true, id: 'step'
+      });
+    }
+  }
+
+  function drawText(text, x, y, o) {
+    DEBUG.attempts++;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) DEBUG.rejects++;
+    ctx.save();
+    ctx.font = o.font;
+    ctx.textAlign = o.align || 'center';
+    ctx.textBaseline = o.base || 'middle';
+    const w = ctx.measureText(text).width;
+    const pad = 3;
+    let x0 = o.align === 'left' ? x : o.align === 'right' ? x - w : x - w / 2;
+    const rect = { x: x0 - pad, y: y - 8, w: w + pad * 2, h: 16 };
+    if (o.id !== 'line' && o.id !== 'step' && o.id !== 'river') {
+      for (const r of labelRects) {
+        if (!(rect.x + rect.w < r.x || rect.x > r.x + r.w || rect.y + rect.h < r.y || rect.y > r.y + r.h)) {
+          DEBUG.rejects++;
+          ctx.restore();
+          return false;
+        }
+      }
+    }
+    labelRects.push(rect);
+    if (DEBUG.labels.length < 200) DEBUG.labels.push({ t: text, id: o.id || '', x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) });
+    if (o.leader) {
+      ctx.strokeStyle = TH.leader;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(o.leader[0], o.leader[1]);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+    if (o.halo) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = TH.halo;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(text, x, y);
+    }
+    ctx.fillStyle = o.color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+    return true;
+  }
+
+  /* ---------------- 南海诸岛附图 ---------------- */
+  const INSET = { w: 132, h: 156, pad: 18 };
+  function drawInset() {
+    const w = INSET.w, h = INSET.h;
+    const x0 = W - INSET.pad - w, y0 = H - INSET.pad - h;
+    if (W < 420) return;
+    ctx.save();
+    ctx.fillStyle = TH.insetBg;
+    roundRect(ctx, x0, y0, w, h, 8);
+    ctx.fill();
+    ctx.strokeStyle = TH.insetEdge;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.save();
+    roundRect(ctx, x0, y0, w, h, 8);
+    ctx.clip();
+    // 以 104–124E, 3–24N 拟合
+    const bb = geoBBox(104, 3, 124, 24);
+    const s = Math.min((w - 12) / (bb[2] - bb[0]), (h - 12) / (bb[3] - bb[1]));
+    const ox = x0 + w / 2 - ((bb[0] + bb[2]) / 2) * s;
+    const oy = y0 + h / 2 - ((bb[1] + bb[3]) / 2) * s;
+    ctx.translate(ox, oy);
+    ctx.scale(s, s);
+
+    // 岛屿与海岸
+    for (const s2 of provinceShapes) {
+      ctx.fillStyle = TH.insetLand;
+      ctx.fill(s2.path, 'evenodd');
+      ctx.strokeStyle = TH.insetLandEdge;
+      ctx.lineWidth = 0.6 / s;
+      ctx.stroke(s2.path);
+    }
+    if (nineDash) {
+      ctx.strokeStyle = TH.insetDash;
+      ctx.lineWidth = 1.5 / s;
+      ctx.setLineDash([5 / s, 4 / s]);
+      ctx.stroke(nineDash.path);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+
+    ctx.fillStyle = TH.insetText;
+    ctx.font = '9px ' + FONT_SANS;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('南海诸岛', x0 + w / 2, y0 - 4);
+    ctx.restore();
+  }
+
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  function drawVignette() {
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.78);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, TH.vignette);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawScale() {
+    const [x1] = albers(105, 35);
+    const [x2] = albers(106, 35);
+    const pxPerDeg = Math.abs(sx(x2) - sx(x1));
+    const kmPerPx = (111.32 * Math.cos(35 * RAD)) / pxPerDeg;
+    const targets = [100, 200, 500, 1000, 2000];
+    let pick = 500, best = Infinity;
+    for (const t of targets) {
+      const px = t / kmPerPx;
+      if (px >= 56 && px <= 130 && Math.abs(px - 88) < best) { best = Math.abs(px - 88); pick = t; }
+    }
+    const bar = $('#scalebar');
+    bar.querySelector('span').style.width = Math.round(pick / kmPerPx) + 'px';
+    bar.querySelector('b').textContent = pick + ' km';
+  }
+
+  /* ------------------------------------------------------------
+     命中测试
+     ------------------------------------------------------------ */
+  function buildPick() {
+    pickCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    pickCtx.clearRect(0, 0, W, H);
+    pickCtx.translate(W / 2 + state.view.tx, H / 2 + state.view.ty);
+    pickCtx.scale(baseS * state.view.k, baseS * state.view.k);
+    pickCtx.translate(-cx, -cy);
+    for (let i = 0; i < provinceShapes.length; i++) {
+      const id = i + 1;
+      pickCtx.fillStyle = `rgb(${id & 255},${(id >> 8) & 255},0)`;
+      pickCtx.fill(provinceShapes[i].path, 'evenodd');
+    }
+    pickDirty = false;
+  }
+
+  function provinceAt(clientX, clientY) {
+    if (pickDirty) buildPick();
+    const r = canvas.getBoundingClientRect();
+    const px = Math.round((clientX - r.left) * DPR);
+    const py = Math.round((clientY - r.top) * DPR);
+    if (px < 0 || py < 0 || px >= pickCanvas.width || py >= pickCanvas.height) return null;
+    const d = pickCtx.getImageData(px, py, 1, 1).data;
+    const id = d[0] + (d[1] << 8);
+    if (!id) return null;
+    return provinceShapes[id - 1].name;
+  }
+
+  // 小省（京津沪港澳）面积太小，给一个 12px 的吸附半径
+  const TINY = () => provinceShapes
+    .map((s) => ({ s, p: PROV_BY_NAME[s.name] }))
+    .filter((o) => o.p && o.p.area < 2)
+    .map((o) => ({ name: o.s.name, x: sx(o.s.centroid[0]), y: sy(o.s.centroid[1]) }));
+
+  function tinyAt(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    const px = clientX - r.left, py = clientY - r.top;
+    let best = null, bd = 12;
+    for (const t of TINY()) {
+      const d = Math.hypot(t.x - px, t.y - py);
+      if (d < bd) { bd = d; best = t.name; }
+    }
+    return best;
+  }
+
+  function distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const l2 = dx * dx + dy * dy;
+    let t = l2 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+    t = clamp(t, 0, 1);
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
+  function overlayAt(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    const px = clientX - r.left, py = clientY - r.top;
+    if (state.layers.mountains || state.tab === 'landform') {
+      for (const m of C.mountains) {
+        const [x, y] = albers(m.coord[0], m.coord[1]);
+        if (Math.hypot(px - sx(x), py - sy(y)) < 11) return { type: 'mountain', item: m };
+      }
+    }
+    if (state.layers.rivers || state.tab === 'water') {
+      for (const rv of C.rivers) {
+        for (let i = 1; i < rv.path.length; i++) {
+          const [ax, ay] = albers(rv.path[i - 1][0], rv.path[i - 1][1]);
+          const [bx, by] = albers(rv.path[i][0], rv.path[i][1]);
+          if (distToSegment(px, py, sx(ax), sy(ay), sx(bx), sy(by)) < 7) return { type: 'river', item: rv };
+        }
+      }
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------
+     视图控制
+     ------------------------------------------------------------ */
+  function setView(v, animateMs = 0) {
+    if (animateMs) {
+      anim = { t0: performance.now(), ms: animateMs, from: { ...state.view }, to: v };
+      if (!raf) raf = requestAnimationFrame(tick);
+    } else {
+      state.view = { ...v };
+      pickDirty = true;
+      requestDraw();
+    }
+  }
+
+  function resetView() {
+    setView({ k: 1, tx: 0, ty: 0 }, 420);
+  }
+
+  function zoomAt(px, py, factor, ms = 220) {
+    const v = state.view;
+    const k = clamp(v.k * factor, 1, 9);
+    const wx = (px - W / 2 - v.tx) / (baseS * v.k) + cx;
+    const wy = (py - H / 2 - v.ty) / (baseS * v.k) + cy;
+    setView({ k, tx: px - W / 2 - (wx - cx) * baseS * k, ty: py - H / 2 - (wy - cy) * baseS * k }, ms);
+  }
+
+  function fitBBox(bbox, pad = 0.72, maxK = 7) {
+    const bw = Math.max(1e-6, bbox[2] - bbox[0]);
+    const bh = Math.max(1e-6, bbox[3] - bbox[1]);
+    const k = clamp(Math.min((W * pad) / (bw * baseS), (H * pad) / (bh * baseS)), 1, maxK);
+    return {
+      k,
+      tx: -((bbox[0] + bbox[2]) / 2 - cx) * baseS * k,
+      ty: -((bbox[1] + bbox[3]) / 2 - cy) * baseS * k
+    };
+  }
+
+  function focusProvince(name, ms = 520) {
+    const s = shapeByName[name];
+    if (!s) return;
+    const bbox = name === '海南省' ? geoBBox(108.4, 18.0, 111.2, 20.3) : s.bbox;
+    setView(fitBBox(bbox, 0.62, 6), ms);
+  }
+
+  function focusCoords(lon, lat, k = 2.4, ms = 520) {
+    const [x, y] = albers(lon, lat);
+    setView({ k, tx: -(x - cx) * baseS * k, ty: -(y - cy) * baseS * k }, ms);
+  }
+
+  /* ------------------------------------------------------------
+     交互
+     ------------------------------------------------------------ */
+  let pointer = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    pointer = { down: true, moved: false, x: e.clientX, y: e.clientY, sx: state.view.tx, sy: state.view.ty };
+    canvas.setPointerCapture(e.pointerId);
+    anim = null;
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (pointer.down) {
+      const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) {
+        pointer.moved = true;
+        canvas.classList.add('is-dragging');
+      }
+      if (pointer.moved) {
+        state.view.tx = pointer.sx + dx;
+        state.view.ty = pointer.sy + dy;
+        pickDirty = true;
+        requestDraw();
+        tip.classList.remove('is-on');
+        return;
+      }
+    }
+    hoverAt(e.clientX, e.clientY);
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    const wasDown = pointer.down;
+    pointer.down = false;
+    canvas.classList.remove('is-dragging');
+    if (!wasDown || pointer.moved) return;
+    handleClick(e.clientX, e.clientY);
+  });
+
+  canvas.addEventListener('pointerleave', () => {
+    tip.classList.remove('is-on');
+    if (state.hover) { state.hover = null; requestDraw(); }
+    state.hoverMountain = null;
+    state.hoverRiver = null;
+    canvas.classList.remove('is-pointing');
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.18 : 1 / 1.18, 0);
+  }, { passive: false });
+
+  $('#zoomIn').onclick = () => zoomAt(W / 2, H / 2, 1.4);
+  $('#zoomOut').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.4);
+  $('#reset').onclick = () => { resetView(); };
+
+  function hoverAt(clientX, clientY) {
+    const ov = overlayAt(clientX, clientY);
+    const r = canvas.getBoundingClientRect();
+    const ox = clientX - r.left, oy = clientY - r.top;
+    if (ov) {
+      canvas.classList.add('is-pointing');
+      if (ov.type === 'mountain') {
+        if (state.hoverMountain !== ov.item.name) {
+          state.hoverMountain = ov.item.name; state.hoverRiver = null; state.hover = null;
+          requestDraw();
+        }
+        showTip(ox, oy, ov.item.name, [ov.item.elev, ov.item.trend]);
+      } else {
+        if (state.hoverRiver !== ov.item.name) {
+          state.hoverRiver = ov.item.name; state.hoverMountain = null; state.hover = null;
+          requestDraw();
+        }
+        showTip(ox, oy, ov.item.name, [ov.item.length, ov.item.rank.split(' · ')[0]]);
+      }
+      return;
+    }
+    const name = provinceAt(clientX, clientY);
+    if (state.hoverMountain || state.hoverRiver) {
+      state.hoverMountain = null; state.hoverRiver = null; requestDraw();
+    }
+    if (name !== state.hover) {
+      state.hover = name;
+      requestDraw();
+    }
+    canvas.classList.toggle('is-pointing', !!name || state.tab === 'quiz');
+    if (!name) { tip.classList.remove('is-on'); return; }
+    const p = PROV_BY_NAME[name];
+    if (!p) return;
+    showTip(ox, oy, p.name, [p.short, capLabel(p)]);
+  }
+
+  function showTip(x, y, name, subs) {
+    tip.innerHTML = `<div class="t-name">${esc(name)}</div><div class="t-sub">${subs.map((s) => `<span>${esc(s)}</span>`).join('')}</div>`;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+    tip.classList.add('is-on');
+    if (state.tab === 'quiz') tip.classList.remove('is-on');
+  }
+
+  function handleClick(clientX, clientY) {
+    const ov = overlayAt(clientX, clientY);
+    if (ov && state.tab !== 'quiz') {
+      if (ov.type === 'mountain') {
+        state.selectedMountain = ov.item.name;
+        state.selectedRiver = null;
+        state.selected = null;
+        renderPanel();
+        requestDraw();
+        return;
+      }
+      if (ov.type === 'river') {
+        if (state.tab === 'water' || state.layers.rivers) {
+          state.selectedRiver = ov.item.name;
+          state.selectedMountain = null;
+          state.selected = null;
+          renderPanel();
+          requestDraw();
+          return;
+        }
+      }
+    }
+    const name = tinyAt(clientX, clientY) || provinceAt(clientX, clientY);
+    if (!name) {
+      if (state.selected || state.selectedRiver || state.selectedMountain) {
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
+        renderPanel(); requestDraw();
+      }
+      return;
+    }
+    if (state.tab === 'quiz' && state.quiz && state.quiz.active) {
+      answerByProvince(name);
+      return;
+    }
+    selectProvince(name);
+  }
+
+  function selectProvince(name, focus = false) {
+    state.selected = name;
+    state.selectedRiver = null;
+    state.selectedMountain = null;
+    $('#emptyHint').classList.add('is-off');
+    renderPanel();
+    requestDraw();
+    if (focus) focusProvince(name);
+    if (!focus && window.innerWidth <= 900) {
+      const el = document.querySelector('#panel');
+      if (el && el.getBoundingClientRect().top > window.innerHeight - 80) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------
+     Panel 渲染
+     ------------------------------------------------------------ */
+  const panel = $('#panelBody');
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function provinceRanks(p) {
+    const areas = C.provinces.map((x) => x.area).sort((a, b) => b - a);
+    const pops = C.provinces.map((x) => x.pop).sort((a, b) => b - a);
+    return {
+      area: areas.indexOf(p.area) + 1,
+      pop: pops.indexOf(p.pop) + 1,
+      density: Math.round(p.pop / p.area)
+    };
+  }
+
+  function renderPanel() {
+    if (state.tab === 'quiz') return renderQuiz();
+    if (state.selected) return renderProvince(state.selected);
+    if (state.selectedRiver) return renderRiver(state.selectedRiver);
+    if (state.selectedMountain) return renderMountain(state.selectedMountain);
+    if (state.tab === 'landform') return renderLandform();
+    if (state.tab === 'climate') return renderClimate();
+    if (state.tab === 'water') return renderWater();
+    return renderExplore();
+  }
+
+  function renderExplore() {
+    const counts = REGION_ORDER.map((r) => [r, C.provinces.filter((p) => p.region === r).length]);
+    panel.innerHTML = `
+      <div class="eyebrow">从这里开始</div>
+      <h2>读懂这片土地</h2>
+      <p class="lead">从西到东，中国的地势像三级台阶一路降到海面。台阶决定了河流往哪流，河流又决定了城市与人口长在哪里。</p>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">陆地面积</span><span class="v">960<small>万 km²</small></span></div>
+        <div class="stat"><span class="k">省级行政区</span><span class="v">34<small>个</small></span></div>
+        <div class="stat"><span class="k">陆上邻国</span><span class="v">14<small>个</small></span></div>
+        <div class="stat"><span class="k">大陆海岸线</span><span class="v">1.8<small>万 km</small></span></div>
+      </div>
+      <div class="rule"></div>
+      <h3>七大地理分区</h3>
+      <div class="list" id="regionList">
+        ${counts.map(([r, n]) => `
+          <button class="list-item" data-region="${r}">
+            <span class="li-top"><span class="li-dot" style="background:${swatch(C.regions[r].color)}"></span>
+              <span class="li-name">${r}</span><span class="li-tag">${n} 个省级</span></span>
+            <span class="li-desc">${C.regions[r].desc}</span>
+          </button>`).join('')}
+      </div>
+      <div class="note-box"><b>试试看：</b>点击地图上的省份，或者用左侧搜索框输入「拉萨」「桂」「成都」，看看会发生什么。</div>
+      <div class="chips">
+        <span class="chip is-accent">点击省份</span>
+        <span class="chip">切换着色</span>
+        <span class="chip">拖拽缩放</span>
+      </div>`;
+    panel.querySelectorAll('[data-region]').forEach((b) => {
+      b.onclick = () => {
+        const r = b.dataset.region;
+        state.dimOthers = state.dimOthers === r ? null : r;
+        renderPanel(); requestDraw();
+        const bs = C.provinces.filter((p) => p.region === r).map((p) => shapeByName[p.name].bbox);
+        setView(fitBBox([Math.min(...bs.map((b2) => b2[0])), Math.min(...bs.map((b2) => b2[1])), Math.max(...bs.map((b2) => b2[2])), Math.max(...bs.map((b2) => b2[3]))], 0.8, 3), 480);
+      };
+    });
+  }
+
+  function renderProvince(name) {
+    const p = PROV_BY_NAME[name];
+    if (!p) return renderExplore();
+    const rk = provinceRanks(p);
+    const region = C.regions[p.region];
+    const clim = CLIM[p.climate];
+    const step = STEP[p.step];
+    const maxArea = 166.49, maxPop = 12601;
+    panel.innerHTML = `
+      <div class="eyebrow">省级行政区 · ${p.region}</div>
+      <div class="province-hero">
+        <div class="mark">${esc(p.short)}</div>
+        <div class="meta">
+          <span class="latin">${p.coord[0].toFixed(1)}°E · ${p.coord[1].toFixed(1)}°N</span>
+          <span class="cap">${p.capital === '—' ? '特别行政区' : capWord(p) + ' <b>' + esc(p.capital) + '</b>'}</span>
+        </div>
+      </div>
+      <h2>${esc(p.name)}</h2>
+      <p class="lead">${esc(p.terrain)}</p>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">面积</span><span class="v">${p.area}<small>万 km²</small></span><span class="r">全国第 ${rk.area} 位</span></div>
+        <div class="stat"><span class="k">常住人口</span><span class="v">${fmt(p.pop)}<small>万</small></span><span class="r">全国第 ${rk.pop} 位</span></div>
+        <div class="stat"><span class="k">人口密度</span><span class="v">${fmt(rk.density)}<small>人/km²</small></span></div>
+        <div class="stat"><span class="k">地势阶梯</span><span class="v" style="font-size:15px">${step.name.replace('阶梯', '')}阶梯</span><span class="r">${step.elev}</span></div>
+      </div>
+      <div class="bars">
+        <div class="bar-row"><span class="lab"><span>面积占比</span><b>${(p.area / 960 * 100).toFixed(2)}% 国土</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.area / maxArea * 100, 1, 100)}%"></span></span></div>
+        <div class="bar-row"><span class="lab"><span>人口规模</span><b>${(p.pop / 141178 * 100).toFixed(1)}% 全国</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${clamp(p.pop / maxPop * 100, 1, 100)}%"></span></span></div>
+      </div>
+      <div class="chips">${p.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}
+        <span class="chip is-accent">${esc(region.desc)}</span></div>
+      <div class="rule"></div>
+      <h3>气候与地势</h3>
+      <div class="note-box"><b>${clim.name}</b> · ${clim.key}<br/>${clim.plant} · ${clim.farm}</div>
+      <button class="btn ghost" id="focusProv">在地图上放大这一省</button>`;
+    $('#focusProv').onclick = () => focusProvince(p.name);
+  }
+
+  function renderLandform() {
+    panel.innerHTML = `
+      <div class="eyebrow">地势 · 三级阶梯</div>
+      <h2>西高东低，三级台阶</h2>
+      <p class="lead">第一级阶梯是平均 4000 米以上的青藏高原；第二级降到 1000–2000 米的高原与盆地；第三级是 500 米以下的平原与丘陵，一直延伸到海。</p>
+      <div class="list">
+        ${C.steps.map((s) => `
+          <div class="list-item">
+            <span class="li-top"><span class="li-dot" style="background:${swatch(s.color)}"></span>
+              <span class="li-name">${s.name}</span><span class="li-tag">${s.elev}</span></span>
+            <span class="li-desc">${s.area} · ${s.note}</span>
+          </div>`).join('')}
+      </div>
+      <div class="note-box"><b>为什么重要：</b>西高东低让绝大多数河流自西向东流，阶梯交界处落差大、水能集中；也让夏季海洋水汽可以深入内陆，形成季风气候。</div>
+      <div class="rule"></div>
+      <h3>主要地形区</h3>
+      <div class="list" id="lfList">
+        ${C.landforms.map((l) => `
+          <button class="list-item" data-lf="${esc(l.name)}">
+            <span class="li-top"><span class="li-name">${l.name}</span><span class="li-tag">${l.kind}</span></span>
+            <span class="li-desc">${l.stat}</span>
+          </button>`).join('')}
+      </div>`;
+    panel.querySelectorAll('[data-lf]').forEach((b) => {
+      b.onclick = () => {
+        const l = C.landforms.find((x) => x.name === b.dataset.lf);
+        state.focusLandform = l.name;
+        focusCoords(l.coord[0], l.coord[1], 3.1);
+        panel.querySelectorAll('[data-lf]').forEach((x) => x.classList.toggle('is-on', x === b));
+        showTipInline(l);
+      };
+    });
+  }
+
+  function showTipInline(l) {
+    let box = panel.querySelector('.lf-detail');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'note-box lf-detail';
+      panel.appendChild(box);
+    }
+    box.innerHTML = `<b>${esc(l.name)}</b> · ${esc(l.stat)}<br/>${esc(l.fact)}`;
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function renderClimate() {
+    panel.innerHTML = `
+      <div class="eyebrow">气候</div>
+      <h2>季风里的中国</h2>
+      <p class="lead">海陆热力差异让东亚成为世界上季风最典型的地区。夏季风从海洋带来水汽，冬季风从内陆带来干冷，降水因此从东南向西北递减。</p>
+      <div class="list" id="climList">
+        ${C.climates.map((c) => `
+          <button class="list-item ${state.highlightClimate === c.id ? 'is-on' : ''}" data-clim="${c.id}">
+            <span class="li-top"><span class="li-dot" style="background:${swatch(c.color)}"></span>
+              <span class="li-name">${c.name}</span><span class="li-tag">${c.key}</span></span>
+            <span class="li-desc">${c.where}</span>
+          </button>`).join('')}
+      </div>
+      <div class="note-box"><b>秦岭—淮河线：</b>1 月 0℃ 等温线、800 mm 年等降水量线大致从这里穿过。线以北是暖温带、旱地小麦；线以南是亚热带、水田稻作。</div>
+      <div class="note-box"><b>干湿地带：</b>从东南沿海向西北，年降水量由 1600 mm 降到 50 mm 以下，植被依次是森林 → 草原 → 荒漠。</div>
+      <div class="note-box"><b>读图提示：</b>地图按「主导气候类型」给省份着色，实际省界内常有过渡，例如陕西南北就横跨两个气候带。</div>`;
+    panel.querySelectorAll('[data-clim]').forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.clim;
+        state.highlightClimate = state.highlightClimate === id ? null : id;
+        renderPanel(); requestDraw();
+      };
+    });
+  }
+
+  function renderWater() {
+    panel.innerHTML = `
+      <div class="eyebrow">水系</div>
+      <h2>大江东去</h2>
+      <p class="lead">受西高东低的地势控制，中国绝大多数河流自西向东注入太平洋。外流区约占国土三分之二，内流区集中在西北干旱区。</p>
+      <div class="list" id="riverList">
+        ${C.rivers.map((r) => `
+          <button class="list-item ${state.selectedRiver === r.name ? 'is-on' : ''}" data-river="${esc(r.name)}">
+            <span class="li-top"><span class="li-dot" style="background:${r.color}"></span>
+              <span class="li-name">${r.name}</span><span class="li-tag">${r.length}</span></span>
+            <span class="li-desc">${r.rank}</span>
+          </button>`).join('')}
+      </div>
+      <div class="note-box"><b>外流区与内流区：</b>分界线大致沿大兴安岭—阴山—贺兰山—祁连山—冈底斯山，与 400 mm 年等降水量线接近。内流河多靠冰雪融水补给，夏季水量最大。</div>
+      <div class="rule"></div>
+      ${state.selectedRiver ? riverDetailHTML(C.rivers.find((r) => r.name === state.selectedRiver)) : `
+        <h3>选一条河</h3><p>点击上方列表或地图上的河流，看它的源头、入海口与沿途省区。</p>`}`;
+    panel.querySelectorAll('[data-river]').forEach((b) => {
+      b.onclick = () => {
+        state.selectedRiver = state.selectedRiver === b.dataset.river ? null : b.dataset.river;
+        state.selected = null;
+        renderPanel(); requestDraw();
+        if (state.selectedRiver) {
+          const r = C.rivers.find((x) => x.name === state.selectedRiver);
+          const mid = r.path[Math.floor(r.path.length / 2)];
+          focusCoords(mid[0], mid[1], 1.35, 520);
+        }
+      };
+    });
+  }
+
+  function riverDetailHTML(r) {
+    if (!r) return '';
+    return `
+      <h3>${r.name} <span style="font-family:var(--font-mono);font-size:9px;color:var(--dim);letter-spacing:.14em">${r.en.toUpperCase()}</span></h3>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">长度</span><span class="v" style="font-size:15px">${r.length}</span></div>
+        <div class="stat"><span class="k">地位</span><span class="v" style="font-size:12px;line-height:1.5">${r.rank}</span></div>
+      </div>
+      <p><b style="color:var(--ink-soft)">源头</b>　${r.source}<br/><b style="color:var(--ink-soft)">注入</b>　${r.mouth}<br/><b style="color:var(--ink-soft)">流经</b>　${r.through}</p>
+      <div class="note-box">${r.note}</div>`;
+  }
+
+  function renderRiver(name) {
+    const r = C.rivers.find((x) => x.name === name);
+    if (!r) return renderWater();
+    panel.innerHTML = `
+      <div class="eyebrow">河流 · ${r.rank}</div>
+      <h2>${r.name}</h2>
+      ${riverDetailHTML(r)}
+      <button class="btn ghost" id="backWater">← 返回水系列表</button>`;
+    $('#backWater').onclick = () => { state.selectedRiver = null; renderPanel(); };
+  }
+
+  function renderMountain(name) {
+    const m = C.mountains.find((x) => x.name === name);
+    panel.innerHTML = `
+      <div class="eyebrow">山脉</div>
+      <h2>${esc(m.name)}</h2>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">海拔</span><span class="v" style="font-size:15px">${m.elev}</span></div>
+        <div class="stat"><span class="k">走向</span><span class="v" style="font-size:15px">${m.trend}</span></div>
+      </div>
+      <div class="note-box">${esc(m.note)}</div>
+      <button class="btn ghost" id="backTab">← 返回</button>`;
+    $('#backTab').onclick = () => { state.selectedMountain = null; renderPanel(); requestDraw(); };
+  }
+
+  /* ------------------------------------------------------------
+     闯关
+     ------------------------------------------------------------ */
+  const quizModes = [
+    ['mix', '混合闯关'], ['province', '地图找省份'],
+    ['capital', '省会配对'], ['fact', '地理常识']
+  ];
+  const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+
+  function buildQuiz(mode) {
+    const qs = [];
+    const provs = shuffle(C.provinces.filter((p) => p.pop > 0));
+    const clickQs = provs.slice(0, 10).map((p) => ({ type: 'click', name: p.name, label: p.label, prompt: `在地图上找到：${p.name}` }));
+    const capQs = shuffle(C.provinces.filter((p) => p.capital !== '—')).slice(0, 10).map((p) => {
+      const others = shuffle(C.provinces.filter((x) => x.capital !== '—' && x.capital !== p.capital)).slice(0, 3);
+      const options = shuffle([p.capital, ...others.map((o) => o.capital)]);
+      return { type: 'choice', prompt: `${p.name} 的${MUNI.has(p.name) ? '驻地' : '省会'}是？`, answer: p.capital, options, meta: '省会配对', name: p.name };
+    });
+    const factQs = shuffle(C.facts).slice(0, 10).map((f) => {
+      const options = shuffle([f.a, ...f.options]);
+      return { type: 'choice', prompt: f.q, answer: f.a, options, meta: f.tag };
+    });
+    if (mode === 'province') return clickQs;
+    if (mode === 'capital') return capQs;
+    if (mode === 'fact') return factQs;
+    return shuffle([...shuffle(clickQs).slice(0, 4), ...shuffle(capQs).slice(0, 3), ...factQs.slice(0, 3)]);
+  }
+
+  function startQuiz(mode) {
+    state.quiz = {
+      mode, qs: buildQuiz(mode).slice(0, 10), i: 0, score: 0,
+      answers: [], answered: false, picked: null, startAt: Date.now(), active: true
+    };
+    state.quizMarks = {};
+    state.selected = null;
+    state.layers.labels = false;
+    state.fill = 'region';
+    syncControls();
+    renderQuiz();
+    requestDraw();
+  }
+
+  function currentQ() {
+    const q = state.quiz;
+    return q && q.qs[q.i];
+  }
+
+  function renderQuiz() {
+    const q = state.quiz;
+    if (!q) {
+      panel.innerHTML = `
+        <div class="eyebrow">闯关 · 检验一下</div>
+        <h2>十道题，走一遍中国</h2>
+        <p class="lead">四种玩法：在地图上找省份、给省份配省会、答地理常识，或者混合来一轮。满分 10 分。</p>
+        <div class="quiz-mode" id="modePick">
+          ${quizModes.map(([m, label]) => `<button data-mode="${m}">${label}</button>`).join('')}
+        </div>
+        <div class="note-box">找省份时地图会隐藏名称。答错会立刻标出正确位置，最后可以看错题回顾。</div>
+        <div class="stat-grid">
+          <div class="stat"><span class="k">题型</span><span class="v" style="font-size:14px">点击 / 选择</span></div>
+          <div class="stat"><span class="k">题量</span><span class="v">10<small>题</small></span></div>
+        </div>`;
+      panel.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => startQuiz(b.dataset.mode); });
+      return;
+    }
+
+    if (!q.active) return renderQuizResult();
+    const cur = currentQ();
+    const dots = q.qs.map((_, i) => {
+      const a = q.answers[i];
+      const cls = a ? (a.ok ? 'ok' : 'bad') : (i === q.i ? 'now' : '');
+      return `<i class="${cls}"></i>`;
+    }).join('');
+
+    if (!cur) return renderQuizResult();
+
+    panel.innerHTML = `
+      <div class="quiz">
+        <div class="quiz-top">
+          <div class="eyebrow" style="margin:0">第 ${q.i + 1} / ${q.qs.length} 题 · 得分 ${q.score}</div>
+          <div class="quiz-dots">${dots}</div>
+        </div>
+        <div class="quiz-q"><small>${cur.type === 'click' ? '点击地图作答' : '选择一个答案'}</small>${esc(cur.prompt)}</div>
+        ${cur.type === 'choice' ? `
+          <div class="quiz-opts">
+            ${cur.options.map((o, i) => {
+              const cls = q.answered ? (o === cur.answer ? 'ok' : (o === q.picked ? 'bad' : '')) : '';
+              return `<button data-opt="${esc(o)}" class="${cls}" ${q.answered ? 'disabled' : ''}><span>${String.fromCharCode(65 + i)}</span>${esc(o)}</button>`;
+            }).join('')}
+          </div>` : `
+          <div class="note-box" style="border-left-color:rgba(95,182,217,.6)">在右侧地图上点击你认为正确的省份。${q.answered ? '' : '看不清？可以点下面的提示。'}</div>
+          ${!q.answered ? '<button class="btn ghost" id="hintBtn">显示省份名称 3 秒</button>' : ''}`}
+        <div class="feedback ${q.answered ? (q.lastOk ? 'ok' : 'bad') : ''}">${q.feedback || ''}</div>
+        ${q.answered ? '<button class="btn" id="nextBtn">下一题 →</button>' : '<button class="btn ghost" id="skipBtn">跳过这题</button>'}
+        <div class="rule"></div>
+        <p style="font-size:10.5px">计时 ${elapsedText(q)} · 答错不扣分，但会记入错题回顾。</p>
+      </div>`;
+
+    panel.querySelectorAll('[data-opt]').forEach((b) => {
+      b.onclick = () => answerByOption(b.dataset.opt, b);
+    });
+    const nb = $('#nextBtn'); if (nb) nb.onclick = nextQuestion;
+    const sb = $('#skipBtn'); if (sb) sb.onclick = () => answerByProvince(null, true);
+    const hb = $('#hintBtn'); if (hb) hb.onclick = () => {
+      state.forceLabelsUntil = performance.now() + 3000;
+      state.layers.labels = true;
+      requestDraw();
+      setTimeout(() => { if (state.tab === 'quiz') { state.layers.labels = false; requestDraw(); } }, 3000);
+    };
+  }
+
+  function elapsedText(q) {
+    const s = Math.max(0, Math.round(((q.endAt || Date.now()) - q.startAt) / 1000));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function answerByOption(opt, btn) {
+    const q = state.quiz;
+    if (!q || q.answered) return;
+    const cur = currentQ();
+    const ok = opt === cur.answer;
+    q.answered = true;
+    q.lastOk = ok;
+    q.picked = opt;
+    if (ok) q.score++;
+    q.answers[q.i] = { ok, q: cur, picked: opt };
+    q.feedback = ok ? '答对了。' : `正确答案是「${cur.answer}」。`;
+    if (btn) {
+      btn.classList.add(ok ? 'ok' : 'bad');
+      panel.querySelectorAll('[data-opt]').forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.opt === cur.answer) b.classList.add('ok');
+      });
+    }
+    state.quizMarks = {};
+    renderQuiz();
+    requestDraw();
+  }
+
+  function answerByProvince(name, skip = false) {
+    const q = state.quiz;
+    if (!q || q.answered) return;
+    const cur = currentQ();
+    if (cur.type !== 'click') return;
+    const ok = name === cur.name;
+    q.answered = true;
+    q.lastOk = ok;
+    q.picked = skip ? '__skip' : name;
+    if (ok) q.score++;
+    q.answers[q.i] = { ok, q: cur, picked: name };
+    q.feedback = ok ? '找对了。' : skip ? `正确答案是「${cur.name}」，已在地图上标出。` : `这里是「${PROV_BY_NAME[name] ? PROV_BY_NAME[name].name : name}」，正确答案是「${cur.name}」。`;
+    state.quizMarks = { correct: cur.name, wrong: ok || skip ? null : name };
+    q.timer = setTimeout(() => { if (state.quiz === q && q.answered) nextQuestion(); }, 1800);
+    renderQuiz();
+    requestDraw();
+  }
+
+  function nextQuestion() {
+    const q = state.quiz;
+    if (!q) return;
+    if (q.timer) { clearTimeout(q.timer); q.timer = null; }
+    if (q.i >= q.qs.length - 1) {
+      q.active = false;
+      q.endAt = Date.now();
+      state.quizMarks = {};
+      renderQuizResult();
+      requestDraw();
+      return;
+    }
+    q.i++;
+    q.answered = false;
+    q.picked = null;
+    q.feedback = '';
+    state.quizMarks = {};
+    renderQuiz();
+    requestDraw();
+  }
+
+  function renderQuizResult() {
+    const q = state.quiz;
+    const total = q.qs.length;
+    const right = q.answers.filter(Boolean).filter((a) => a.ok).length;
+    const pct = Math.round((right / total) * 100);
+    const grade = pct >= 90 ? '地理达人' : pct >= 70 ? '底子不错' : pct >= 50 ? '还差一点' : '继续加油';
+    const wrong = q.answers.filter(Boolean).filter((a) => !a.ok);
+    panel.innerHTML = `
+      <div class="eyebrow">闯关结果</div>
+      <h2>${grade}</h2>
+      <div class="score-big">${right}<small> / ${total}</small></div>
+      <p>正确率 ${pct}% · 用时 ${elapsedText(q)}</p>
+      <div class="bars">
+        <div class="bar-row"><span class="lab"><span>正确率</span><b>${pct}%</b></span>
+          <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:linear-gradient(90deg,rgba(95,191,163,.5),var(--jade))"></span></span></div>
+      </div>
+      ${wrong.length ? `<div class="rule"></div><h3>错题回顾</h3><div class="review">
+        ${wrong.map((a) => `<div class="r-item"><b>${esc(a.q.type === 'click' ? a.q.name : a.q.prompt)}</b><br/>
+          ${a.q.type === 'click' ? '在地图上找它的位置' : '正确答案：' + esc(a.q.answer)}</div>`).join('')}
+      </div>` : '<div class="note-box">全对。可以试试「地图找省份」模式，把名称藏起来再来一轮。</div>'}
+      <div class="quiz-mode" style="margin-top:6px">
+        <button id="again">再玩一次</button>
+        <button id="switchMode">换个模式</button>
+      </div>`;
+    $('#again').onclick = () => startQuiz(q.mode);
+    $('#switchMode').onclick = () => { state.quiz = null; renderQuiz(); };
+  }
+
+  /* ------------------------------------------------------------
+     知识速记
+     ------------------------------------------------------------ */
+  function renderKnowledge() {
+    const grid = $('#kgrid');
+    const stair = `
+      <svg viewBox="0 0 360 190" role="img" aria-label="中国地势三级阶梯示意">
+        <defs>
+          <linearGradient id="st1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d3c4b0"/><stop offset="1" stop-color="#d3c4b0" stop-opacity=".15"/></linearGradient>
+          <linearGradient id="st2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a8977a"/><stop offset="1" stop-color="#a8977a" stop-opacity=".15"/></linearGradient>
+          <linearGradient id="st3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d9270"/><stop offset="1" stop-color="#7d9270" stop-opacity=".15"/></linearGradient>
+        </defs>
+        <path d="M0 150 L0 40 L120 40 L120 82 L232 82 L232 118 L360 118 L360 150 Z" fill="url(#st1)" opacity=".28"/>
+        <path d="M120 82 L232 82 L232 118 L360 118 L360 150 L120 150 Z" fill="url(#st2)" opacity=".28"/>
+        <path d="M232 118 L360 118 L360 150 L232 150 Z" fill="url(#st3)" opacity=".32"/>
+        <path d="M0 40 L120 40 L120 82 L232 82 L232 118 L360 118 L360 150" fill="none" stroke="var(--gold-2)" stroke-width="1.4"/>
+        <text x="10" y="30" fill="#d3c4b0" font-size="10" font-family="Songti SC,serif">第一级 · 4000m+</text>
+        <text x="132" y="72" fill="#d3c4b0" font-size="10" font-family="Songti SC,serif">第二级 · 1000–2000m</text>
+        <text x="248" y="108" fill="#d3c4b0" font-size="10" font-family="Songti SC,serif">第三级 · &lt;500m</text>
+        <text x="4" y="166" fill="#8ba0ad" font-size="9" font-family="PingFang SC,sans-serif">青藏高原</text>
+        <text x="150" y="166" fill="#8ba0ad" font-size="9" font-family="PingFang SC,sans-serif">高原与盆地</text>
+        <text x="286" y="166" fill="#8ba0ad" font-size="9" font-family="PingFang SC,sans-serif">平原与丘陵</text>
+        <path d="M6 178 L40 178" stroke="#8ba0ad" stroke-width="1" stroke-dasharray="2 3"/>
+        <text x="46" y="181" fill="#5f7484" font-size="9" font-family="PingFang SC,sans-serif">西</text>
+        <text x="330" y="181" fill="#5f7484" font-size="9" font-family="PingFang SC,sans-serif">东</text>
+      </svg>`;
+
+    grid.innerHTML = `
+      <div class="k-hero" style="grid-column:1/-1">
+        <div>
+          <h2>把中国地理，压缩成一页</h2>
+          <p>先看地势，再记三条分界线，然后认省区，最后去闯关。这张「速记页」把最容易混淆的数字与概念放在一起，随时回来查。</p>
+          <div class="k-path"><span>① 地势三级阶梯</span><span>② 三条分界线</span><span>③ 34 个省级</span><span>④ 闯关检验</span></div>
+        </div>
+        ${stair}
+      </div>
+      ${C.notes.map((n) => noteCard(n)).join('')}`;
+  }
+
+  function noteCard(n) {
+    const color = { steps: '#d8a657', list: '#5fb6d9', lines: '#7fd4c1', climate: '#9b8fc0', extremes: '#e0c07a', neighbors: '#63a98c', provinces: '#c8974e' }[n.kind] || '#d8a657';
+    let body = '';
+    if (n.kind === 'steps') {
+      body = `<div class="k-steps">
+        ${C.steps.map((s, i) => `<div class="k-step" style="--c:${s.color};height:${[96, 60, 34][i]}%"><span>${s.name.replace('阶梯', '')}</span></div>`).join('')}
+      </div>
+      <div class="k-list">${C.steps.map((s) => `<div class="k-row"><span class="k-name">${s.name}</span><span class="k-desc">${s.elev} · ${s.area}</span></div>`).join('')}</div>`;
+    } else if (n.kind === 'list') {
+      body = `<div class="k-list">${n.items.map(([a, b]) => `<div class="k-row"><span class="k-name">${a}</span><span class="k-desc">${b}</span></div>`).join('')}</div>`;
+    } else if (n.kind === 'lines') {
+      body = `<div class="k-list">${n.items.map(([a, b]) => `<div class="k-row"><span class="k-name">${a}</span><span class="k-desc">${b}</span></div>`).join('')}</div>`;
+    } else if (n.kind === 'climate') {
+      body = `<div class="k-list">${C.climates.map((c) => `<div class="k-row"><span class="k-name" style="color:${c.color}">${c.name}</span><span class="k-desc">${c.key} · ${c.where}</span></div>`).join('')}</div>`;
+    } else if (n.kind === 'extremes') {
+      body = `<div>${C.extremes.map(([a, b, c]) => `<div class="k-num"><span class="n">${a} · ${b}</span><span class="v">${c}</span></div>`).join('')}</div>`;
+    } else if (n.kind === 'neighbors') {
+      body = `<div class="k-tags">${C.neighbors.map((x) => `<span>${x}</span>`).join('')}</div><div class="k-lead">${n.lead}</div>`;
+    } else if (n.kind === 'provinces') {
+      body = `<div class="k-table">${C.provinces.map((p) => `<div><b>${p.label}</b><i>${p.short}${p.capital !== '—' ? ' · ' + p.capital : ''}</i></div>`).join('')}</div>`;
+    }
+    return `<article class="kcard ${n.kind === 'provinces' ? 'span2' : ''}" style="--kc:${color}">
+      <h3>${esc(n.title)}</h3>
+      ${n.lead && n.kind !== 'neighbors' ? `<div class="k-lead">${esc(n.lead)}</div>` : ''}
+      ${body}
+    </article>`;
+  }
+
+  /* ------------------------------------------------------------
+     剖面图
+     ------------------------------------------------------------ */
+  const profCanvas = $('#profile');
+  const pctx = profCanvas.getContext('2d');
+  let pw = 1, ph = 1, profHover = null;
+
+  function layoutProfile() {
+    if (state.tab !== 'landform') return;
+    const r = profCanvas.getBoundingClientRect();
+    pw = Math.max(1, r.width); ph = Math.max(1, r.height);
+    profCanvas.width = Math.round(pw * DPR);
+    profCanvas.height = Math.round(ph * DPR);
+    drawProfile();
+  }
+
+  const PM = { l: 44, r: 16, t: 12, b: 24 };
+  const LON0 = 79, LON1 = 122, EMAX = 5400;
+
+  function px(lon) { return PM.l + ((lon - LON0) / (LON1 - LON0)) * (pw - PM.l - PM.r); }
+  function py(e) { return ph - PM.b - (e / EMAX) * (ph - PM.t - PM.b); }
+
+  function drawProfile() {
+    if (!pw) return;
+    pctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    pctx.clearRect(0, 0, pw, ph);
+
+    // 阶梯底色
+    const bands = [[LON0, 101.5, C.steps[0].color], [101.5, 110.0, C.steps[1].color], [110.0, LON1, C.steps[2].color]];
+    for (const [a, b, c] of bands) {
+      pctx.fillStyle = hexA(c, 0.055);
+      pctx.fillRect(px(a), PM.t, px(b) - px(a), ph - PM.t - PM.b);
+    }
+    // 网格
+    pctx.strokeStyle = TH.profGrid;
+    pctx.fillStyle = TH.profAxis;
+    pctx.font = '9px ' + FONT_MONO;
+    pctx.textAlign = 'right';
+    pctx.textBaseline = 'middle';
+    for (let e = 0; e <= 5000; e += 1000) {
+      const y = py(e);
+      pctx.beginPath(); pctx.moveTo(PM.l, y); pctx.lineTo(pw - PM.r, y); pctx.stroke();
+      pctx.fillText(e + '', PM.l - 7, y);
+    }
+    pctx.save();
+    pctx.translate(11, (ph - PM.b + PM.t) / 2);
+    pctx.rotate(-Math.PI / 2);
+    pctx.textAlign = 'center';
+    pctx.fillStyle = TH.profAxis2;
+    pctx.fillText('海拔 (m)', 0, 0);
+    pctx.restore();
+
+    // 经度
+    pctx.textAlign = 'center';
+    pctx.textBaseline = 'top';
+    for (let lon = 80; lon <= 120; lon += 10) {
+      pctx.fillStyle = TH.profAxis3;
+      pctx.fillText(lon + '°E', px(lon), ph - PM.b + 6);
+    }
+
+    // 山体
+    const path = new Path2D();
+    path.moveTo(px(C.profile[0][0]), py(0));
+    for (const [lon, e] of C.profile) path.lineTo(px(lon), py(e));
+    path.lineTo(px(C.profile[C.profile.length - 1][0]), py(0));
+    path.closePath();
+    const grad = pctx.createLinearGradient(0, py(EMAX), 0, py(0));
+    grad.addColorStop(0, TH.profGrad1);
+    grad.addColorStop(0.35, TH.profGrad2);
+    grad.addColorStop(1, TH.profGrad3);
+    pctx.fillStyle = grad;
+    pctx.fill(path);
+    pctx.strokeStyle = TH.profLine;
+    pctx.lineWidth = 1.6;
+    pctx.beginPath();
+    C.profile.forEach(([lon, e], i) => {
+      if (i === 0) pctx.moveTo(px(lon), py(e)); else pctx.lineTo(px(lon), py(e));
+    });
+    pctx.stroke();
+
+    // 阶梯分界
+    pctx.save();
+    pctx.setLineDash([4, 4]);
+    pctx.strokeStyle = TH.profCross;
+    pctx.lineWidth = 1;
+    for (const lon of [101.5, 110.0]) {
+      pctx.beginPath(); pctx.moveTo(px(lon), PM.t); pctx.lineTo(px(lon), ph - PM.b); pctx.stroke();
+    }
+    pctx.restore();
+
+    // 标注点
+    pctx.font = '10px ' + FONT_SANS;
+    let lastLabelX = -99;
+    for (const [lon, e, name] of C.profile) {
+      if (!name) continue;
+      const x = px(lon), y = py(e);
+      pctx.beginPath();
+      pctx.arc(x, y, 2.2, 0, Math.PI * 2);
+      pctx.fillStyle = TH.profDot;
+      pctx.fill();
+      if (x - lastLabelX < 54) continue;
+      lastLabelX = x;
+      pctx.textAlign = lon > 116 ? 'right' : 'center';
+      pctx.textBaseline = 'bottom';
+      pctx.fillStyle = TH.profLabel;
+      pctx.fillText(name, lon > 116 ? x - 4 : x, y - 7);
+      if (lon > 100 && e > 3000) {
+        pctx.fillStyle = TH.profAxis4;
+        pctx.fillText(Math.round(e) + 'm', x, y + 13);
+        pctx.textBaseline = 'bottom';
+      }
+    }
+
+    // hover
+    if (profHover) {
+      const [lon] = profHover;
+      const x = px(lon);
+      pctx.strokeStyle = TH.profHover;
+      pctx.lineWidth = 1;
+      pctx.beginPath(); pctx.moveTo(x, PM.t); pctx.lineTo(x, ph - PM.b); pctx.stroke();
+      pctx.beginPath(); pctx.arc(x, py(profHover[1]), 3.2, 0, Math.PI * 2);
+      pctx.fillStyle = TH.profDot2; pctx.fill();
+    }
+  }
+
+  profCanvas.addEventListener('pointermove', (e) => {
+    const r = profCanvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const lon = LON0 + ((x - PM.l) / (pw - PM.l - PM.r)) * (LON1 - LON0);
+    let best = null, bd = Infinity;
+    for (const pt of C.profile) {
+      const d = Math.abs(pt[0] - lon);
+      if (d < bd) { bd = d; best = pt; }
+    }
+    profHover = best;
+    drawProfile();
+    if (best) {
+      const tip2 = $('#dockTitle');
+      $("#dockTitle").innerHTML = `${best[2] ? esc(best[2]) + ' · ' : ''}${best[0].toFixed(1)}°E · 海拔 ${fmt(best[1])} m`;
+    }
+  });
+  profCanvas.addEventListener('pointerleave', () => {
+    profHover = null;
+    $('#dockTitle').textContent = '沿北纬 30° 的地形剖面';
+    drawProfile();
+  });
+
+  /* ------------------------------------------------------------
+     控件与 Tab
+     ------------------------------------------------------------ */
+  const TAB_PRESET = {
+    explore: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['地理分区', '34 个省级行政区'], tip: '点击省份看它的地形、气候与家底；左侧可以切换着色方式。' },
+    landform: { fill: 'step', layers: { labels: true, capitals: false, mountains: true, rivers: false, lines: false }, pill: ['西高东低', '三级阶梯'], tip: '虚线是阶梯分界线：昆仑山—祁连山—横断山，大兴安岭—太行山—巫山—雪峰山。' },
+    climate: { fill: 'climate', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['五个气候类型', '季风气候显著'], tip: '按主导气候类型着色；点右侧类型可以高亮对应省份。' },
+    water: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: true, lines: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
+    quiz: { fill: 'region', layers: { labels: false, capitals: false, mountains: false, rivers: false, lines: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false }, pill: [], tip: '' }
+  };
+
+  function setTab(tab) {
+    const prevTab = state.tab;
+    state.tab = tab;
+    $$('#tabs .tab').forEach((b) => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const preset = TAB_PRESET[tab];
+    state.fill = preset.fill;
+    if (!state.layersTouched) {
+      // 用户没动过图层：按这个视图的推荐配置来
+      state.layers = { ...preset.layers };
+    } else if (tab === 'quiz') {
+      // 闯关要藏省名；离开时恢复用户自己勾的那份
+      if (prevTab !== 'quiz') state.preQuizLayers = { ...state.layers };
+      state.layers = { ...state.layers, labels: false, capitals: false };
+    } else if (prevTab === 'quiz' && state.preQuizLayers) {
+      state.layers = { ...state.preQuizLayers };
+      state.preQuizLayers = null;
+    }
+    state.highlightClimate = null;
+    state.dimOthers = null;
+    state.selected = null;
+    state.selectedRiver = null;
+    state.selectedMountain = null;
+    state.hover = null;
+    state.quizMarks = {};
+    if (tab !== 'quiz' && state.quiz) state.quiz = null;
+
+    const isNotes = tab === 'notes';
+    $('#stage').classList.toggle('is-hidden', isNotes);
+    $('#knowledge').hidden = !isNotes;
+    $('#rail').style.display = isNotes ? 'none' : '';
+    if (isNotes) {
+      $('#knowledge').scrollTop = 0;
+      return;
+    }
+
+    // dock
+    $('#dock').hidden = tab !== 'landform';
+    if (tab === 'landform') {
+      $('#dockTitle').textContent = '沿北纬 30° 的地形剖面';
+      $('#dockLegend').innerHTML = C.steps.map((s) => `<i style="--c:${swatch(s.color)}">${s.name.replace('阶梯', '')}</i>`).join('');
+      setTimeout(layoutProfile, 30);
+    }
+
+    // pills
+    $('#mapPills').innerHTML = (preset.pill || []).map((p, i) => `<span class="pill">${i === 0 ? '<b>' + esc(p) + '</b>' : esc(p)}</span>`).join('');
+    $('#railTip').textContent = preset.tip;
+    $('#emptyHint').classList.toggle('is-off', tab !== 'explore');
+    syncControls();
+    renderPanel();
+    requestDraw();
+    if (tab === 'quiz') { state.quiz = null; renderQuiz(); }
+  }
+
+  function syncControls() {
+    $$('#fillModes button').forEach((b) => b.classList.toggle('is-on', b.dataset.fill === state.fill));
+    $$('#layerList input').forEach((i) => { i.checked = !!state.layers[i.dataset.layer]; });
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const box = $('#legend');
+    const note = $('#legendNote');
+    if (state.tab === 'quiz') {
+      note.textContent = '作答';
+      box.innerHTML = `<div class="legend-row"><span class="sw" style="background:${swatch(C.regions['华东'].color)}"></span>点击省份作答</div>`;
+      return;
+    }
+    if (state.fill === 'step') {
+      note.textContent = '地势';
+      box.innerHTML = C.steps.map((s) => `<div class="legend-row"><span class="sw" style="background:${swatch(s.color)}"></span>${s.name}<small>${s.elev}</small></div>`).join('');
+      return;
+    }
+    if (state.fill === 'climate') {
+      note.textContent = '气候';
+      box.innerHTML = C.climates.map((c) => `<div class="legend-row"><span class="sw" style="background:${swatch(c.color)}"></span>${c.name}<small>${c.key.split(' · ')[0]}</small></div>`).join('');
+      return;
+    }
+    note.textContent = '七大区';
+    box.innerHTML = REGION_ORDER.map((r) => `<div class="legend-row"><span class="sw" style="background:${swatch(C.regions[r].color)}"></span>${r}<small>${C.provinces.filter((p) => p.region === r).length}</small></div>`).join('');
+  }
+
+  $$('#fillModes button').forEach((b) => {
+    b.onclick = () => {
+      state.fill = b.dataset.fill;
+      syncControls();
+      requestDraw();
+    };
+  });
+
+  $$('#layerList input').forEach((i) => {
+    i.onchange = () => {
+      state.layers[i.dataset.layer] = i.checked;
+      // 手动改过图层后，切视图 / 用查找都不再把它还原成推荐配置
+      state.layersTouched = true;
+      savePrefs();
+      requestDraw();
+    };
+  });
+
+  $$('#themer button').forEach((b) => {
+    b.onclick = () => applyTheme(b.dataset.theme);
+  });
+
+  // 搜索
+  const search = $('#search');
+  const results = $('#searchResults');
+  function doSearch() {
+    const q = search.value.trim();
+    if (!q) { results.innerHTML = ''; results.hidden = true; return; }
+    const hits = [];
+    for (const p of C.provinces) {
+      if (p.name.includes(q) || p.label.includes(q) || p.short === q || (p.capital !== '—' && p.capital.includes(q))) {
+        hits.push({ kind: '省份', name: p.name, sub: `${p.short} · ${p.capital}`, act: () => { setTab('explore'); selectProvince(p.name, true); } });
+      }
+    }
+    for (const r of C.rivers) {
+      if (r.name.includes(q) || (r.alias || '').includes(q)) {
+        hits.push({ kind: '河流', name: r.name, sub: `${r.rank} · ${r.length}`, act: () => { setTab('water'); state.selectedRiver = r.name; state.selected = null; renderPanel(); const mid = r.path[Math.floor(r.path.length / 2)]; focusCoords(mid[0], mid[1], 2.1); } });
+      }
+    }
+    for (const m of C.mountains) {
+      if (m.name.includes(q)) {
+        hits.push({ kind: '山脉', name: m.name, sub: m.elev, act: () => { setTab('landform'); state.selectedMountain = m.name; state.selected = null; renderPanel(); focusCoords(m.coord[0], m.coord[1], 2.4); } });
+      }
+    }
+    const top = hits.slice(0, 8);
+    results.hidden = false;
+    if (!top.length) { results.innerHTML = '<div class="empty">没有找到，试试「新疆」「长江」「秦岭」「乌鲁木齐」</div>'; return; }
+    results.innerHTML = '';
+    for (const h of top) {
+      const b = document.createElement('button');
+      b.innerHTML = `<span class="sr-k">${h.kind}</span>${esc(h.name)}<span class="sr-s">${esc(h.sub)}</span>`;
+      b.onclick = () => { search.value = ''; results.innerHTML = ''; results.hidden = true; h.act(); };
+      results.appendChild(b);
+    }
+  }
+  search.addEventListener('input', doSearch);
+  search.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const f = results.querySelector('button'); if (f) f.click(); } });
+
+  $$('#tabs .tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
+      renderPanel(); requestDraw();
+    }
+    if (e.key === '+' || e.key === '=') zoomAt(W / 2, H / 2, 1.3);
+    if (e.key === '-') zoomAt(W / 2, H / 2, 1 / 1.3);
+  });
+
+  const ro = new ResizeObserver(() => resize());
+  ro.observe(wrap);
+
+  /* ------------------------------------------------------------
+     启动
+     ------------------------------------------------------------ */
+  window.__DBG = {
+    state, DEBUG, shapes, provinceShapes, albers, frame, INSET,
+    metrics: () => ({ W, H, DPR, baseS, cx, cy, wb }),
+    screen: (lon, lat) => { const p = albers(lon, lat); return [sx(p[0]), sy(p[1])]; },
+    overlaps() {
+      const L = DEBUG.labels; let n = 0; const pairs = [];
+      for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+        const a = L[i], b = L[j];
+        if (!(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h)) { n++; if (pairs.length < 12) pairs.push(a.t + '/' + b.t); }
+      }
+      return { n, pairs };
+    }
+  };
+
+  resize();
+
+  // 恢复上次的主题与图层勾选
+  const prefs = loadPrefs();
+  if (prefs) {
+    if (prefs.layersTouched && prefs.layers) {
+      state.layersTouched = true;
+      state.layers = { ...state.layers, ...prefs.layers };
+    }
+    applyTheme(prefs.theme || 'night', false);
+  } else {
+    // 头一次打开：跟随系统的浅色/深色偏好，别一上来就压一片黑
+    const light = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    applyTheme(light ? 'paper' : 'night', false);
+  }
+
+  renderKnowledge();
+  setTab('explore');
+  // 入场：先扫过一遍
+  setTimeout(() => { state.reveal = 0; requestDraw(); }, 30);
+})();
