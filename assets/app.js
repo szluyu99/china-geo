@@ -19,6 +19,16 @@
   const CROPS = C.crops || [];
   const CROP_BY_ID = Object.fromEntries(CROPS.map((c) => [c.id, c]));
   const PROV_BY_NAME = Object.fromEntries(C.provinces.map((p) => [p.name, p]));
+  const RANK = (() => {
+    const byArea = C.provinces.slice().sort((a, b) => b.area - a.area).map((p) => p.name);
+    const byPop = C.provinces.slice().sort((a, b) => b.pop - a.pop).map((p) => p.name);
+    const index = (list) => Object.fromEntries(list.map((n, i) => [n, i + 1]));
+    return { area: index(byArea), pop: index(byPop) };
+  })();
+  const TAB_NAME = {
+    explore: '地理分区', landform: '地势三级阶梯', climate: '气候类型',
+    agri: '农业分区', water: '水系', notes: '速记', quiz: '闯关'
+  };
 
   const state = {
     tab: 'explore',
@@ -31,11 +41,14 @@
     selectedMountain: null,
     selectedRiver: null,
     highlightClimate: null,
+    hi: null,
+    profileLon: null,
     focusLandform: null,
     quiz: null,
     quizMarks: {},
     view: { k: 1, tx: 0, ty: 0 },
     reveal: 0,
+    revealT0: 0,
     forceLabelsUntil: 0,
     dimOthers: null,
     theme: 'night',
@@ -329,6 +342,7 @@
   const staticCanvas = document.createElement('canvas');
   const ctxStatic = staticCanvas.getContext('2d');
   let cachedKey = '';
+  let edgeCanvas = null;
   const pickCanvas = document.createElement('canvas');
   const pickCtx = pickCanvas.getContext('2d', { willReadFrequently: true });
   const tip = $('#tooltip');
@@ -348,12 +362,23 @@
     cy = (landBBox[1] + landBBox[3]) / 2;
   }
 
+  function ensureEdgeCanvas() {
+    const w = Math.max(1, Math.round(W * DPR));
+    const h = Math.max(1, Math.round(H * DPR));
+    if (!edgeCanvas) edgeCanvas = document.createElement('canvas');
+    if (edgeCanvas.width !== w || edgeCanvas.height !== h) {
+      edgeCanvas.width = w;
+      edgeCanvas.height = h;
+    }
+  }
+
   function resize() {
     const r = wrap.getBoundingClientRect();
     W = Math.max(1, r.width); H = Math.max(1, r.height);
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
     staticCanvas.width = canvas.width; staticCanvas.height = canvas.height;
+    ensureEdgeCanvas();
     pickCanvas.width = canvas.width; pickCanvas.height = canvas.height;
     cachedKey = '';
     computeBase();
@@ -389,7 +414,8 @@
       if (p >= 1) anim = null;
     }
     if (state.reveal < 1) {
-      state.reveal = Math.min(1, state.reveal + 0.028);
+      // 按时间推进，而不是按帧数：120Hz 屏幕上原来的写法会快一倍，无 vblank 时还会卡住
+      state.reveal = clamp((t - state.revealT0) / 620, 0, 1);
       dirty = true;
     }
     if (state.tab === 'water' && state.layers.rivers) { dirty = true; }
@@ -451,22 +477,23 @@
       const dim = state.dimOthers && state.dimOthers !== p[dimKey()] ? 0.18 : 1;
       const cc = state.highlightClimate && state.highlightClimate !== p.climate ? 0.16
         : (state.highlightCrop && !((CROP_BY_ID[state.highlightCrop] || {}).provinces || []).includes(p.name) ? 0.14 : 1);
+      const hd = hiMatch(p) ? 1 : 0.12;
       const isHover = state.hover === s.name;
-      ctx.globalAlpha = reveal * Math.min(dim, cc) * (isHover ? 1 : 0.98);
+      ctx.globalAlpha = reveal * Math.min(dim, cc, hd) * (isHover ? 1 : 0.98);
       ctx.fillStyle = provColor(p);
       ctx.fill(s.path, 'evenodd');
     }
     ctx.globalAlpha = reveal;
 
-    // 省界
-    ctx.strokeStyle = TH.coastShadow;
-    ctx.lineWidth = 0.9 / (baseS * state.view.k) * 1.2;
+    // 省界：细线，缩小时不与外边界抢眼
+    const kk = baseS * state.view.k;
+    ctx.strokeStyle = TH.coastLight;
+    ctx.lineWidth = clamp(1.05 / kk, 0.35, 1.7);
     for (const s of provinceShapes) ctx.stroke(s.path);
 
-    // 省界高光
-    ctx.strokeStyle = TH.coastLight;
-    ctx.lineWidth = 0.7 / (baseS * state.view.k);
-    for (const s of provinceShapes) ctx.stroke(s.path);
+    // 外边界（国界与海岸）：加粗 + 外侧投影，与内部省界拉开层级
+    drawOuterEdge();
+    applyWorld(ctx);
 
     drawStepsBoundary();
     drawLines();
@@ -486,7 +513,7 @@
     return [
       W, H, DPR, state.view.k.toFixed(5), state.view.tx.toFixed(2), state.view.ty.toFixed(2),
       state.tab, state.theme, state.fill, JSON.stringify(state.layers),
-      state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', state.selected || '',
+      state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', JSON.stringify(state.hi || ''), state.selected || '',
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
       state.forceLabelsUntil > performance.now() ? 1 : 0,
@@ -517,6 +544,7 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(staticCanvas, 0, 0);
     drawHoverGlow();
+    drawProfileMarker();
   }
 
   // 悬浮高亮单独画在最上层，避免为了换一个省份把整张地图重绘
@@ -527,15 +555,96 @@
     applyWorld(ctx);
     const k = baseS * state.view.k;
     ctx.save();
-    ctx.fillStyle = hexA(TH.sel, 0.09);
+    // TH.sel 是 rgba() 字面量，不能走 hexA —— 那样会算出 NaN 颜色、整段静默不画
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = TH.sel;
     ctx.fill(s.path, 'evenodd');
-    ctx.strokeStyle = hexA(TH.sel, 0.55);
+    ctx.globalAlpha = 0.62;
+    ctx.strokeStyle = TH.sel;
     ctx.lineWidth = 1.2 / k;
     ctx.stroke(s.path);
     ctx.restore();
   }
 
+  function drawOuterEdge() {
+    if (!edgeCanvas || state.noEdge) return;
+    const ectx = edgeCanvas.getContext('2d');
+    ectx.setTransform(1, 0, 0, 1, 0, 0);
+    ectx.clearRect(0, 0, edgeCanvas.width, edgeCanvas.height);
+    ectx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    applyWorld(ectx);
+    ectx.lineJoin = 'round';
+    ectx.strokeStyle = TH.coastShadow;
+    ectx.lineWidth = 6 / (baseS * state.view.k);
+    for (const s of provinceShapes) ectx.stroke(s.path);
+    // 挖掉陆地内部：只剩外侧那一半描边，形成海岸/国界的投影
+    ectx.globalCompositeOperation = 'destination-out';
+    for (const s of provinceShapes) ectx.fill(s.path, 'evenodd');
+    ectx.globalCompositeOperation = 'source-over';
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = clamp(state.view.k < 0.9 ? 0.9 : 0.75, 0, 1);
+    ctx.drawImage(edgeCanvas, 0, 0);
+    ctx.restore();
+  }
+
+  function linkProfileFromMap(read) {
+    if (!read || state.tab !== 'landform' || !pw) return;
+    if (Math.abs(read.lat - 30) > 1.8) {
+      if (profHover && profHover.mirror) { profHover = null; drawProfile(); }
+      return;
+    }
+    let best = null, bd = Infinity;
+    for (const pt of C.profile) {
+      const d = Math.abs(pt[0] - read.lon);
+      if (d < bd) { bd = d; best = pt; }
+    }
+    if (!best || bd > 1.2) return;
+    if (profHover === best) return;
+    profHover = best;
+    profHover.mirror = true;
+    drawProfile();
+    if (state.profileLon != null && state.profileLon === best[0]) return;
+    const dl = $('#dockTitle');
+    if (dl) dl.innerHTML = `${best[2] ? esc(best[2]) + ' · ' : ''}${best[0].toFixed(1)}°E · 海拔 ${fmt(best[1])} m`;
+  }
+
+  function drawProfileMarker() {
+    if (state.profileLon == null || state.tab !== 'landform') return;
+    const [wx, wy] = albers(state.profileLon, 30);
+    const x = sx(wx), y = sy(wy);
+    ctx.save();
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.setLineDash([3, 4]);
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = TH.sel;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(x, y, 3.4, 0, Math.PI * 2);
+    ctx.fillStyle = TH.sel;
+    ctx.fill();
+    ctx.font = '10px ' + FONT_SANS;
+    ctx.fillStyle = TH.provText;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(state.profileLon.toFixed(1) + '°E', Math.min(x + 6, W - 46), 10);
+    ctx.restore();
+  }
+
   function dimKey() { return 'region'; }
+
+  function hiMatch(p) {
+    const h = state.hi;
+    if (!h) return true;
+    if (h.kind === 'region') return p.region === h.key;
+    if (h.kind === 'step') return String(p.step) === h.key;
+    if (h.kind === 'climate') return p.climate === h.key;
+    if (h.kind === 'crop') return p.crop === h.key;
+    return true;
+  }
 
   function drawGraticule() {
     ctx.save();
@@ -848,6 +957,9 @@
         const isSel = state.selected === s.name;
         const small = (p.area || 0) < 0.3;
         if (small && k < 1.7 && !isSel) continue;
+        // 分级显示：缩得越小，只保留面积大的省名，避免挤成一片
+        const lod = k >= 1.3 ? 0 : (k >= 0.9 ? 1.5 : 8);
+        if (!isSel && (p.area || 0) < lod) continue;
         drawText(p.label, px + ox, py + oy, {
           font: (isSel ? '600 ' : '') + (k >= 1.5 ? '13px ' : '12px ') + FONT_SANS,
           color: isSel ? TH.provTextActive : TH.provText,
@@ -1008,6 +1120,87 @@
     g.addColorStop(1, TH.vignette);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  function legendItems() {
+    if (state.fill === 'step') return C.steps.map((s) => ({ name: s.name, color: s.color }));
+    if (state.fill === 'crop') return CROPS.map((c) => ({ name: c.name, color: c.color }));
+    if (state.fill === 'climate') return C.climates.map((c) => ({ name: c.name, color: c.color }));
+    return REGION_ORDER.map((r) => ({ name: r, color: C.regions[r].color }));
+  }
+
+  function exportPng() {
+    const src = canvas;
+    if (!src.width) return;
+    const OW = 1600, PAD = 64, HEAD = 104, FOOT = 112;
+    const mw = OW - PAD * 2;
+    const mh = Math.round(mw * (src.height / src.width));
+    const OH = HEAD + mh + FOOT;
+    const out = document.createElement('canvas');
+    out.width = OW;
+    out.height = OH;
+    const c = out.getContext('2d');
+    const night = state.theme === 'night';
+    const paper = state.theme === 'paper';
+    c.fillStyle = night ? '#0a1017' : (paper ? '#f7f1e6' : '#eef2f6');
+    c.fillRect(0, 0, OW, OH);
+    const ink = night ? 'rgba(236,225,203,0.92)' : 'rgba(26,34,44,0.9)';
+    const sub = night ? 'rgba(236,225,203,0.55)' : 'rgba(26,34,44,0.55)';
+
+    c.textBaseline = 'alphabetic';
+    c.fillStyle = ink;
+    c.font = '600 34px ' + FONT_DISPLAY;
+    c.fillText('中国地理图谱', PAD, 66);
+    c.font = '15px ' + FONT_SANS;
+    c.fillStyle = sub;
+    c.textAlign = 'right';
+    c.fillText(`${TAB_NAME[state.tab] || '地图'} · ${new Date().toLocaleDateString('zh-CN')}`, OW - PAD, 62);
+    c.textAlign = 'left';
+
+    c.drawImage(src, PAD, HEAD - 8, mw, mh);
+    c.strokeStyle = night ? 'rgba(236,225,203,0.16)' : 'rgba(26,34,44,0.14)';
+    c.lineWidth = 1;
+    c.strokeRect(PAD - 0.5, HEAD - 8.5, mw + 1, mh + 1);
+
+    let x = PAD;
+    const ly = HEAD + mh + 34;
+    c.font = '13px ' + FONT_SANS;
+    for (const it of legendItems()) {
+      c.fillStyle = swatch(it.color);
+      roundRect(c, x, ly - 10, 12, 12, 3);
+      c.fill();
+      c.fillStyle = ink;
+      c.fillText(it.name, x + 18, ly);
+      x += 18 + c.measureText(it.name).width + 20;
+      if (x > OW - PAD - 90) break;
+    }
+
+    c.font = '12.5px ' + FONT_SANS;
+    c.fillStyle = sub;
+    c.fillText('数据：阿里云 DataV 行政边界 · 第七次全国人口普查 · ETOPO1 海拔', PAD, ly + 30);
+    c.textAlign = 'right';
+    c.fillText('szluyu99.github.io/china-geo', OW - PAD, ly + 30);
+    c.textAlign = 'left';
+
+    const name = `china-geo-${state.tab}-${new Date().toISOString().slice(0, 10)}.png`;
+    out.toBlob((b) => {
+      if (!b) return;
+      if (window.__DBG) window.__DBG.lastExport = { w: OH && out.width, h: out.height, bytes: b.size };
+      const url = URL.createObjectURL(b);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const btn = $('#exportPng');
+      if (btn) {
+        const old = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(() => { btn.innerHTML = old; }, 1200);
+      }
+    }, 'image/png');
   }
 
   function drawScale() {
@@ -1281,7 +1474,8 @@
     const ov = overlayAt(clientX, clientY);
     const r = canvas.getBoundingClientRect();
     const ox = clientX - r.left, oy = clientY - r.top;
-    readoutAt(ox, oy, r);
+    const read = readoutAt(ox, oy, r);
+    linkProfileFromMap(read);
     if (ov) {
       canvas.classList.add('is-pointing');
       if (ov.type === 'mountain') {
@@ -1320,7 +1514,7 @@
     if (!name) { tip.classList.remove('is-on'); return; }
     const p = PROV_BY_NAME[name];
     if (!p) return;
-    showTip(ox, oy, p.name, [p.short, capLabel(p)]);
+    showTip(ox, oy, p.name, [p.short, capLabel(p), `面积第 ${RANK.area[p.name]} · 人口第 ${RANK.pop[p.name]}`]);
   }
 
   function showTip(x, y, name, subs) {
@@ -1353,6 +1547,7 @@
     }
     el.innerHTML = `<span data-ro="ll">${lon.toFixed(dec)}°E · ${lat.toFixed(dec)}°N</span>${alt ? `<span data-ro="alt">${alt}</span>` : ''}`;
     el.classList.add('is-on');
+    return { lon, lat };
   }
 
   function handleClick(clientX, clientY) {
@@ -2151,7 +2346,9 @@
       if (d < bd) { bd = d; best = pt; }
     }
     profHover = best;
+    state.profileLon = best ? best[0] : null;
     drawProfile();
+    requestDraw();
     if (best) {
       const tip2 = $('#dockTitle');
       $("#dockTitle").innerHTML = `${best[2] ? esc(best[2]) + ' · ' : ''}${best[0].toFixed(1)}°E · 海拔 ${fmt(best[1])} m`;
@@ -2159,8 +2356,10 @@
   });
   profCanvas.addEventListener('pointerleave', () => {
     profHover = null;
+    state.profileLon = null;
     $('#dockTitle').textContent = '沿北纬 30° 的地形剖面';
     drawProfile();
+    requestDraw();
   });
 
   /* ------------------------------------------------------------
@@ -2199,6 +2398,8 @@
     }
     state.highlightClimate = null;
     state.highlightCrop = null;
+    state.hi = null;
+    state.profileLon = null;
     state.dimOthers = null;
     state.selected = null;
     state.selectedRiver = null;
@@ -2244,6 +2445,13 @@
   function renderLegend() {
     const box = $('#legend');
     const note = $('#legendNote');
+    const count = (fn) => C.provinces.filter(fn).length;
+    const row = (kind, key, color, name, extra) => {
+      const hi = state.hi;
+      const on = hi && hi.kind === kind && hi.key === key;
+      const off = hi && !on;
+      return `<div class="legend-row is-clickable${off ? ' is-off' : ''}${on ? ' is-on' : ''}" role="button" tabindex="0" data-hi="${kind}:${key}"><span class="sw" style="background:${swatch(color)}"></span>${name}<small>${extra}</small></div>`;
+    };
     if (state.tab === 'quiz') {
       note.textContent = '作答';
       box.innerHTML = `<div class="legend-row"><span class="sw" style="background:${swatch(C.regions['华东'].color)}"></span>点击省份作答</div>`;
@@ -2251,21 +2459,46 @@
     }
     if (state.fill === 'step') {
       note.textContent = '地势';
-      box.innerHTML = C.steps.map((s) => `<div class="legend-row"><span class="sw" style="background:${swatch(s.color)}"></span>${s.name}<small>${s.elev}</small></div>`).join('');
+      box.innerHTML = C.steps.map((s) => row('step', String(s.id), s.color, s.name, `${s.elev} · ${count((p) => p.step === s.id)}省`)).join('');
+      bindLegend();
       return;
     }
     if (state.fill === 'crop') {
       note.textContent = '主导作物';
-      box.innerHTML = CROPS.map((c) => `<div class="legend-row"><span class="sw" style="background:${swatch(c.color)}"></span>${c.name}<small>${c.key}</small></div>`).join('');
+      box.innerHTML = CROPS.map((c) => row('crop', c.id, c.color, c.name, `${count((p) => p.crop === c.id)} 省`)).join('');
+      bindLegend();
       return;
     }
     if (state.fill === 'climate') {
       note.textContent = '气候';
-      box.innerHTML = C.climates.map((c) => `<div class="legend-row"><span class="sw" style="background:${swatch(c.color)}"></span>${c.name}<small>${c.key.split(' · ')[0]}</small></div>`).join('');
+      box.innerHTML = C.climates.map((c) => row('climate', c.id, c.color, c.name, `${count((p) => p.climate === c.id)} 省`)).join('');
+      bindLegend();
       return;
     }
     note.textContent = '七大区';
-    box.innerHTML = REGION_ORDER.map((r) => `<div class="legend-row"><span class="sw" style="background:${swatch(C.regions[r].color)}"></span>${r}<small>${C.provinces.filter((p) => p.region === r).length}</small></div>`).join('');
+    box.innerHTML = REGION_ORDER.map((r) => row('region', r, C.regions[r].color, r, `${count((p) => p.region === r)}`)).join('');
+    bindLegend();
+  }
+
+  function bindLegend() {
+    $$('#legend .legend-row[data-hi]').forEach((el) => {
+      const raw = el.dataset.hi;
+      const i = raw.indexOf(':');
+      const kind = raw.slice(0, i), key = raw.slice(i + 1);
+      const toggle = () => {
+        const on = state.hi && state.hi.kind === kind && state.hi.key === key;
+        state.hi = on ? null : { kind, key };
+        state.dimOthers = null;
+        state.highlightClimate = null;
+        state.highlightCrop = null;
+        renderLegend();
+        requestDraw();
+      };
+      el.onclick = toggle;
+      el.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      };
+    });
   }
 
   $$('#fillModes button').forEach((b) => {
@@ -2289,6 +2522,9 @@
   $$('#themer button').forEach((b) => {
     b.onclick = () => applyTheme(b.dataset.theme);
   });
+
+  const exportBtn = $('#exportPng');
+  if (exportBtn) exportBtn.onclick = exportPng;
 
   // 搜索
   const search = $('#search');
@@ -2458,6 +2694,7 @@
   window.__DBG = {
     state, DEBUG, shapes, provinceShapes, albers, frame, INSET,
     inv: (x, y) => ALBERS.inv(x, y), elevAt, wrongAll, readoutAt,
+    redraw: () => { cachedKey = ''; requestDraw(); },
     metrics: () => ({ W, H, DPR, baseS, cx, cy, wb }),
     screen: (lon, lat) => { const p = albers(lon, lat); return [sx(p[0]), sy(p[1])]; },
     w2s: (wx, wy) => [sx(wx), sy(wy)],
@@ -2504,5 +2741,5 @@
   readURL(bootSearch);
   // 入场：先扫过一遍（减少动态效果时直接显示，不做扫光）
   if (reducedMotion()) state.reveal = 1;
-  else setTimeout(() => { state.reveal = 0; requestDraw(); }, 30);
+  else setTimeout(() => { state.revealT0 = performance.now(); requestDraw(); }, 30);
 })();

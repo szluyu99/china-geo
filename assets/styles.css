@@ -308,6 +308,10 @@ body::before {
 .legend-row.is-clickable { cursor: pointer; }
 .legend-row.is-clickable:hover { color: var(--gold-2); }
 .legend-row.is-off { opacity: 0.35; }
+.legend-row.is-on { color: var(--gold-2); }
+.legend-row.is-on .sw { box-shadow: inset 0 0 0 1px var(--gold), 0 0 0 2px rgb(var(--gold-rgb) / 0.16); }
+.legend-row:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+.map-ctl #exportPng { font-size: 15px; }
 
 /* ---------------- map ---------------- */
 .view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

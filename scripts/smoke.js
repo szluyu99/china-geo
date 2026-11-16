@@ -260,6 +260,45 @@ class CDP {
     ok(agri.tab === 'agri', '深链接 tab=agri 没生效', agri);
     ok(agri.crops >= 5, '农业视图缺少作物按钮', agri);
 
+    // 图例可点击：点一行高亮该分区，再点取消
+    await cdp.send('Page.navigate', { url: target.split('?')[0] });
+    await cdp.waitFor('window.__DBG && window.__DBG.DEBUG.labels.length > 0', 20000);
+    await sleep(700);
+    const lg = await cdp.eval(`
+      const row = document.querySelector('#legend .legend-row[data-hi]');
+      const before = document.querySelectorAll('#legend .legend-row[data-hi]').length;
+      row.click();
+      await new Promise((r) => setTimeout(r, 320));
+      const hi = window.__DBG.state.hi;
+      const off = document.querySelectorAll('#legend .legend-row.is-off').length;
+      document.querySelector('#legend .legend-row[data-hi="' + row.dataset.hi + '"]').click();
+      await new Promise((r) => setTimeout(r, 260));
+      return { before, hi, off, after: window.__DBG.state.hi, offAfter: document.querySelectorAll('#legend .legend-row.is-off').length };
+    `);
+    ok(lg.before >= 5, '图例没有可点击的条目', lg);
+    ok(lg.hi && lg.off === lg.before - 1, '点击图例没有高亮对应分区', lg);
+    ok(lg.after === null && lg.offAfter === 0, '再次点击图例没有取消高亮', lg);
+
+    // 剖面悬停 → 地图竖线
+    const mk = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="landform"]').click();
+      await new Promise((r) => setTimeout(r, 800));
+      const c = document.querySelector('#profile').getBoundingClientRect();
+      const cv = document.querySelector('#profile');
+      cv.dispatchEvent(new PointerEvent('pointermove', { clientX: c.left + c.width * 0.45, clientY: c.top + c.height * 0.5, bubbles: true, pointerId: 1, pointerType: 'mouse' }));
+      await new Promise((r) => setTimeout(r, 320));
+      return { lon: window.__DBG.state.profileLon, dock: document.querySelector('#dockTitle').textContent };
+    `);
+    ok(typeof mk.lon === 'number' && /°E/.test(mk.dock), '剖面悬停没有联动地图', mk);
+
+    // 导出 PNG
+    const ex = await cdp.eval(`
+      document.querySelector('#exportPng').click();
+      for (let i = 0; i < 50 && !window.__DBG.lastExport; i++) await new Promise((r) => setTimeout(r, 100));
+      return window.__DBG.lastExport || null;
+    `);
+    ok(ex && ex.w === 1600 && ex.bytes > 50000, '导出 PNG 失败', ex);
+
     ok(cdp.errors.length === 0, '控制台有报错', cdp.errors.slice(0, 3));
   } catch (e) {
     fails.push(e.message);
