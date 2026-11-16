@@ -14,7 +14,7 @@ html = html.replace(
   () => '<style>\n' + read('assets/styles.css') + '\n</style>'
 );
 
-for (const name of ['geo', 'content', 'app']) {
+for (const name of ['elev', 'geo', 'content', 'app']) {
   html = html.replace(
     `<script src="assets/${name}.js"></script>`,
     () => `<script>\n${read(`assets/${name}.js`)}\n</script>`

@@ -122,6 +122,35 @@ for (const p of P) {
 const jd = (G.features || []).filter((f) => f.kind === 'line');
 ok(jd.length === 1 && jd[0].polygons.length > 0, `geo.js 应有 1 条九段线，实际 ${jd.length}`);
 
+// 海拔网格
+const EL = {};
+try {
+  new Function('window', fs.readFileSync(path.join(root, 'assets/elev.js'), 'utf8'))(EL);
+} catch (e) {
+  fails.push('elev.js 无法执行：' + e.message);
+}
+const E = EL.CN_ELEV;
+if (!E || !E.data) {
+  fails.push('elev.js 缺少 CN_ELEV 数据');
+} else {
+  ok(E.nx * E.ny * 2 === E.data.length, `海拔网格长度不符：${E.data.length} ≠ ${E.nx * E.ny * 2}`);
+  const AL = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_';
+  let bad = 0;
+  for (const ch of E.data) if (AL.indexOf(ch) < 0) bad++;
+  ok(bad === 0, `海拔网格有 ${bad} 个非法字符`);
+  const at = (lon, lat) => {
+    const i = Math.round((lon - E.lon0) / E.step), j = Math.round((lat - E.lat0) / E.step);
+    if (i < 0 || j < 0 || i >= E.nx || j >= E.ny) return null;
+    const o = (j * E.nx + i) * 2;
+    return (AL.indexOf(E.data[o]) * 64 + AL.indexOf(E.data[o + 1]) - 50) * (E.unit || 20);
+  };
+  const cases = [['北京', 116.4, 39.9, -50, 300], ['拉萨', 91.1, 29.65, 3000, 4800], ['成都', 104.07, 30.57, 300, 900], ['吐鲁番', 89.2, 42.9, -400, 600], ['上海', 121.47, 31.23, -50, 200]];
+  for (const [n, lo, la, lo2, hi2] of cases) {
+    const v = at(lo, la);
+    ok(v !== null && v >= lo2 && v <= hi2, `海拔网格在${n}处异常：${v}（期望 ${lo2}–${hi2}）`);
+  }
+}
+
 const kb = (fs.statSync(path.join(root, 'assets/geo.js')).size / 1024).toFixed(0);
 if (fails.length) {
   console.error(`✗ 数据体检失败（${fails.length} 项）`);

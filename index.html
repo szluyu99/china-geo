@@ -133,6 +133,7 @@
           <button id="reset" aria-label="复位">⤾</button>
         </div>
         <div class="scalebar" id="scalebar"><span></span><b>500 km</b></div>
+        <div class="readout" id="readout" aria-hidden="true"></div>
         <div class="tooltip" id="tooltip" role="status"></div>
         <div class="empty-hint" id="emptyHint">
           <b>从一张图开始</b>
@@ -175,9 +176,12 @@
       <li><b>面积</b>：约数，单位「万平方公里」，不同资料对辖区与海域的统计口径略有差异。</li>
       <li><b>河流长度、山脉海拔、气候分区</b>：按常见教材口径整理，与专业志书可能有个位数差异。</li>
       <li><b>沿北纬 30° 地形剖面</b>：按公开地形资料抽样重绘，用于示意起伏，不是精确 DEM。</li>
+      <li><b>鼠标位置的经纬度与海拔</b>：经纬度由投影反算；海拔来自 0.25° 网格（ETOPO1 地形数据采样），只代表该格的平均高度，山峰会被削低、盆地会被抬平，读数带「≈」仅供建立高低感。</li>
     </ul>
     <h3>请这样使用</h3>
     <p>本图是教学示意，<b>不能</b>作为边界主张、面积统计或行政隶属的依据。发现数据有误，欢迎提 issue 指正。</p>
+    <h3>你的进度存在哪里</h3>
+    <p>主题、图层勾选、闯关错题本都只存在这台设备的浏览器里（localStorage），不上传、不追踪。换设备或清空浏览器数据会重新开始。</p>
     <h3>技术</h3>
     <p>原生 Canvas 2D + 手写 Albers 等积圆锥投影，零依赖、零后端、无追踪；单文件版本可离线打开。快捷键：方向键平移、<code>+</code>/<code>-</code> 缩放、<code>0</code> 复位、<code>Esc</code> 取消选中。</p>
     <p class="about-links">
@@ -188,7 +192,8 @@
   </div>
 </dialog>
 
-<script src="assets/geo.js"></script>
+  <script src="assets/elev.js"></script>
+  <script src="assets/geo.js"></script>
 <script src="assets/content.js"></script>
 <script src="assets/app.js"></script>
 </body>

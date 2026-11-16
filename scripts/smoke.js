@@ -194,6 +194,40 @@ class CDP {
     ok(city.ov === 0, '城市图层开启后标签重叠', city);
     await cdp.eval(`const cb = document.querySelector('[data-layer="cities"]'); cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true })); return 1;`);
 
+    // 鼠标读数：经纬度 + 海拔
+    const ro = await cdp.eval(`
+      const [x, y] = window.__DBG.screen(104.07, 30.57);
+      const r = document.querySelector('#map').getBoundingClientRect();
+      const c = document.querySelector('#map');
+      c.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1, pointerType: 'mouse' }));
+      await new Promise((res) => setTimeout(res, 200));
+      const el = document.querySelector('#readout');
+      return { on: el.classList.contains('is-on'), txt: el.textContent };
+    `);
+    ok(ro.on && /°E/.test(ro.txt) && /°N/.test(ro.txt), '鼠标读数没有出现经纬度', ro);
+    ok(/海拔|海域/.test(ro.txt), '鼠标读数缺少海拔', ro);
+
+    // 错题本：写入一条错题 → 闯关页出现「只考错题」
+    const wb = await cdp.eval(`
+      localStorage.setItem('cn-geo:wrong:v1', JSON.stringify([
+        { k: 'click:甘肃省', type: 'click', prompt: '在地图上找到：甘肃省', answer: '', options: null, why: '', meta: '', name: '甘肃省', misses: 1, ts: Date.now() }
+      ]));
+      document.querySelector('#tabs .tab[data-tab="quiz"]').click();
+      await new Promise((res) => setTimeout(res, 300));
+      const btn = document.querySelector('#wrongPick [data-mode="wrong"]');
+      const label = btn ? btn.textContent : '';
+      btn && btn.click();
+      await new Promise((res) => setTimeout(res, 300));
+      const prompt = (document.querySelector('.quiz-q') || {}).textContent || '';
+      const type = window.__DBG.state.quiz && window.__DBG.state.quiz.mode;
+      localStorage.removeItem('cn-geo:wrong:v1');
+      return { label, prompt, type };
+    `);
+    ok(/只考错题/.test(wb.label), '闯关页没有错题本入口', wb);
+    ok(wb.type === 'wrong' && /甘肃省/.test(wb.prompt), '错题本模式没有只考错题', wb);
+    await cdp.eval(`document.querySelector('#tabs .tab[data-tab="explore"]').click(); return 1;`);
+    await sleep(300);
+
     // 主题
     const bright = [];
     for (const t of ['night', 'paper', 'day']) {
@@ -239,5 +273,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/主题/深链接');
 })();

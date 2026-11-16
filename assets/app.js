@@ -217,17 +217,50 @@
   /* ------------------------------------------------------------
      Albers 等积圆锥投影（标准纬线 25°N / 47°N）
      ------------------------------------------------------------ */
-  const albers = (() => {
+  const ALBERS = (() => {
     const p1 = 25 * RAD, p2 = 47 * RAD, p0 = 35 * RAD, l0 = 105 * RAD;
     const n = (Math.sin(p1) + Math.sin(p2)) / 2;
     const Cc = Math.cos(p1) ** 2 + 2 * n * Math.sin(p1);
     const rho0 = Math.sqrt(Cc - 2 * n * Math.sin(p0)) / n;
-    return (lon, lat) => {
-      const th = n * (lon * RAD - l0);
-      const rho = Math.sqrt(Math.max(Cc - 2 * n * Math.sin(lat * RAD), 1e-7)) / n;
-      return [rho * Math.sin(th), -(rho0 - rho * Math.cos(th))];
+    return {
+      fwd(lon, lat) {
+        const th = n * (lon * RAD - l0);
+        const rho = Math.sqrt(Math.max(Cc - 2 * n * Math.sin(lat * RAD), 1e-7)) / n;
+        return [rho * Math.sin(th), -(rho0 - rho * Math.cos(th))];
+      },
+      inv(x, y) {
+        // y = -(rho0 - rho·cos th) → rho·cos th = rho0 + y
+        const d = rho0 + y;
+        const th = Math.atan2(x, d);
+        const rho = Math.hypot(x, d);
+        const sinLat = (Cc - (rho * n) ** 2) / (2 * n);
+        const lat = Math.asin(Math.max(-1, Math.min(1, sinLat)));
+        return [(th / n + l0) / RAD, lat / RAD];
+      }
     };
   })();
+  const albers = (lon, lat) => ALBERS.fwd(lon, lat);
+
+  /* ------------------------------------------------------------
+     0.5° 海拔网格（ETOPO1 采样，assets/elev.js）
+     ------------------------------------------------------------ */
+  const ELEV = window.CN_ELEV || null;
+  const ELEV_ALPHA = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_';
+  function elevRaw(i, j) {
+    const o = (j * ELEV.nx + i) * 2;
+    const v = ELEV_ALPHA.indexOf(ELEV.data[o]) * 64 + ELEV_ALPHA.indexOf(ELEV.data[o + 1]);
+    return (v - 50) * ELEV.unit;
+  }
+  // 双线性插值：粗网格直接取整点会阶跃，插值后读数更接近连续地形
+  function elevAt(lon, lat) {
+    if (!ELEV || !ELEV.data) return null;
+    const fx = (lon - ELEV.lon0) / ELEV.step, fy = (lat - ELEV.lat0) / ELEV.step;
+    if (fx < 0 || fy < 0 || fx > ELEV.nx - 1 || fy > ELEV.ny - 1) return null;
+    const i = Math.min(ELEV.nx - 2, Math.floor(fx)), j = Math.min(ELEV.ny - 2, Math.floor(fy));
+    const tx = fx - i, ty = fy - j;
+    const a = elevRaw(i, j), b = elevRaw(i + 1, j), c = elevRaw(i, j + 1), d = elevRaw(i + 1, j + 1);
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  }
 
   /* ------------------------------------------------------------
      预投影：把 GeoJSON 变成 Path2D（世界坐标 = 投影坐标）
@@ -1214,6 +1247,8 @@
 
   canvas.addEventListener('pointerleave', () => {
     tip.classList.remove('is-on');
+    const ro = $('#readout');
+    if (ro) ro.classList.remove('is-on');
     if (state.hover) { state.hover = null; requestDraw(); }
     state.hoverMountain = null;
     state.hoverRiver = null;
@@ -1246,6 +1281,7 @@
     const ov = overlayAt(clientX, clientY);
     const r = canvas.getBoundingClientRect();
     const ox = clientX - r.left, oy = clientY - r.top;
+    readoutAt(ox, oy, r);
     if (ov) {
       canvas.classList.add('is-pointing');
       if (ov.type === 'mountain') {
@@ -1293,6 +1329,30 @@
     tip.style.top = y + 'px';
     tip.classList.add('is-on');
     if (state.tab === 'quiz') tip.classList.remove('is-on');
+  }
+
+  /* 鼠标位置读数：经纬度 + 海拔 */
+  function readoutAt(px, py, r) {
+    const el = $('#readout');
+    if (!el) return;
+    const v = state.view;
+    const wx = (px - W / 2 - v.tx) / (baseS * v.k) + cx;
+    const wy = (py - H / 2 - v.ty) / (baseS * v.k) + cy;
+    const [lon, lat] = ALBERS.inv(wx, wy);
+    const dec = v.k > 2.2 ? 2 : 1;
+    const e = elevAt(lon, lat);
+    let alt = '';
+    if (e == null) {
+      alt = '';
+    } else if (e < -20 && !provinceAt(r.left + px, r.top + py)) {
+      alt = '海域';
+    } else {
+      const step = Math.abs(e) >= 1000 ? 50 : 10;
+      const m = Math.round(e / step) * step;
+      alt = `海拔 ${m < 0 ? '−' + Math.abs(m) : '≈ ' + m} m`;
+    }
+    el.innerHTML = `<span data-ro="ll">${lon.toFixed(dec)}°E · ${lat.toFixed(dec)}°N</span>${alt ? `<span data-ro="alt">${alt}</span>` : ''}`;
+    el.classList.add('is-on');
   }
 
   function handleClick(clientX, clientY) {
@@ -1635,19 +1695,61 @@
   ];
   const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
 
+  /* 错题本：答错的题记到本地，可以只考这些 */
+  const WRONG_KEY = 'cn-geo:wrong:v1';
+  const MAX_WRONG = 60;
+  function wrongAll() {
+    try {
+      const raw = localStorage.getItem(WRONG_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter((x) => x && x.k) : [];
+    } catch (e) { return []; }
+  }
+  function wrongSave(list) {
+    try { localStorage.setItem(WRONG_KEY, JSON.stringify(list.slice(0, MAX_WRONG))); } catch (e) {}
+  }
+  function wrongAdd(q) {
+    if (!q || !q.key) return;
+    const list = wrongAll();
+    const i = list.findIndex((x) => x.k === q.key);
+    const rec = {
+      k: q.key, type: q.type, prompt: q.prompt, answer: q.answer || '',
+      options: q.options ? [...q.options] : null, why: q.why || '',
+      meta: q.meta || '', name: q.name || '',
+      misses: i >= 0 ? (list[i].misses || 1) + 1 : 1, ts: Date.now()
+    };
+    if (i >= 0) list[i] = rec; else list.unshift(rec);
+    wrongSave(list);
+  }
+  function wrongClear(key) {
+    const list = wrongAll();
+    const i = list.findIndex((x) => x.k === key);
+    if (i < 0) return false;
+    list.splice(i, 1);
+    wrongSave(list);
+    return true;
+  }
+  function wrongCount() { return wrongAll().length; }
+  function wrongQuestions() {
+    return wrongAll().map((r) => (r.type === 'click'
+      ? { type: 'click', key: r.k, name: r.name, label: (PROV_BY_NAME[r.name] || {}).label || '', prompt: `在地图上找到：${r.name}` }
+      : { type: 'choice', key: r.k, prompt: r.prompt, answer: r.answer, options: shuffle(r.options && r.options.length ? r.options : [r.answer]), meta: r.meta || '错题', why: r.why || '', name: r.name }));
+  }
+
   function buildQuiz(mode) {
     const qs = [];
     const provs = shuffle(C.provinces.filter((p) => p.pop > 0));
-    const clickQs = provs.slice(0, 10).map((p) => ({ type: 'click', name: p.name, label: p.label, prompt: `在地图上找到：${p.name}` }));
+    const clickQs = provs.slice(0, 10).map((p) => ({ type: 'click', key: 'click:' + p.name, name: p.name, label: p.label, prompt: `在地图上找到：${p.name}` }));
     const capQs = shuffle(C.provinces.filter((p) => p.capital !== '—')).slice(0, 10).map((p) => {
       const others = shuffle(C.provinces.filter((x) => x.capital !== '—' && x.capital !== p.capital)).slice(0, 3);
       const options = shuffle([p.capital, ...others.map((o) => o.capital)]);
-      return { type: 'choice', prompt: `${p.name} 的${MUNI.has(p.name) ? '驻地' : '省会'}是？`, answer: p.capital, options, meta: '省会配对', name: p.name };
+      return { type: 'choice', key: 'cap:' + p.name, prompt: `${p.name} 的${MUNI.has(p.name) ? '驻地' : '省会'}是？`, answer: p.capital, options, meta: '省会配对', name: p.name };
     });
     const factQs = shuffle(C.facts).slice(0, 10).map((f) => {
       const options = shuffle([f.a, ...f.options]);
-      return { type: 'choice', prompt: f.q, answer: f.a, options, meta: f.tag, why: f.why || '' };
+      return { type: 'choice', key: 'fact:' + f.q, prompt: f.q, answer: f.a, options, meta: f.tag, why: f.why || '' };
     });
+    if (mode === 'wrong') return wrongQuestions();
     if (mode === 'province') return clickQs;
     if (mode === 'capital') return capQs;
     if (mode === 'fact') return factQs;
@@ -1655,6 +1757,7 @@
   }
 
   function startQuiz(mode) {
+    if (mode === 'wrong' && !wrongCount()) return;
     state.quiz = {
       mode, qs: buildQuiz(mode).slice(0, 10), i: 0, score: 0,
       answers: [], answered: false, picked: null, startAt: Date.now(), active: true
@@ -1675,6 +1778,7 @@
 
   function renderQuiz() {
     const q = state.quiz;
+    const wn = wrongCount();
     if (!q) {
       panel.innerHTML = `
         <div class="eyebrow">闯关 · 检验一下</div>
@@ -1683,12 +1787,19 @@
         <div class="quiz-mode" id="modePick">
           ${quizModes.map(([m, label]) => `<button data-mode="${m}">${label}</button>`).join('')}
         </div>
-        <div class="note-box">找省份时地图会隐藏名称。答错会立刻标出正确位置，最后可以看错题回顾。</div>
+        <div class="note-box">找省份时地图会隐藏名称。答错会立刻标出正确位置，答错的题会自动进「错题本」，答对一次就划掉。</div>
+        ${wn ? `<div class="quiz-mode" id="wrongPick">
+          <button data-mode="wrong">只考错题 · ${wn}</button>
+          <button id="clearWrong" class="flat">清空</button>
+        </div>` : ''}
         <div class="stat-grid">
           <div class="stat"><span class="k">题型</span><span class="v" style="font-size:14px">点击 / 选择</span></div>
           <div class="stat"><span class="k">题量</span><span class="v">10<small>题</small></span></div>
+          <div class="stat"><span class="k">错题本</span><span class="v">${wn}<small>题</small></span></div>
         </div>`;
       panel.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => startQuiz(b.dataset.mode); });
+      const cw = $('#clearWrong');
+      if (cw) cw.onclick = () => { wrongSave([]); renderQuiz(); };
       return;
     }
 
@@ -1751,6 +1862,7 @@
     q.lastOk = ok;
     q.picked = opt;
     if (ok) q.score++;
+    if (ok) wrongClear(cur.key); else wrongAdd(cur);
     q.answers[q.i] = { ok, q: cur, picked: opt };
     q.feedback = (ok ? '答对了。' : `正确答案是「${cur.answer}」。`) + (cur.why ? ' ' + cur.why : '');
     if (btn) {
@@ -1775,6 +1887,7 @@
     q.lastOk = ok;
     q.picked = skip ? '__skip' : name;
     if (ok) q.score++;
+    if (ok) wrongClear(cur.key); else wrongAdd(cur);
     q.answers[q.i] = { ok, q: cur, picked: name };
     q.feedback = ok ? '找对了。' : skip ? `正确答案是「${cur.name}」，已在地图上标出。` : `这里是「${PROV_BY_NAME[name] ? PROV_BY_NAME[name].name : name}」，正确答案是「${cur.name}」。`;
     state.quizMarks = { correct: cur.name, wrong: ok || skip ? null : name };
@@ -1825,11 +1938,14 @@
           ${a.q.type === 'click' ? '在地图上找它的位置' : '正确答案：' + esc(a.q.answer)}
           ${a.q.why ? `<small class="why">${esc(a.q.why)}</small>` : ''}</div>`).join('')}
       </div>` : '<div class="note-box">全对。可以试试「地图找省份」模式，把名称藏起来再来一轮。</div>'}
+      ${wrongCount() ? `<div class="note-box">错题本已攒下 <b>${wrongCount()}</b> 题，答对一次就会划掉。</div>` : ''}
       <div class="quiz-mode" style="margin-top:6px">
         <button id="again">再玩一次</button>
+        ${wrongCount() ? '<button id="reviewWrong">复习错题</button>' : ''}
         <button id="switchMode">换个模式</button>
       </div>`;
     $('#again').onclick = () => startQuiz(q.mode);
+    const rw = $('#reviewWrong'); if (rw) rw.onclick = () => startQuiz('wrong');
     $('#switchMode').onclick = () => { state.quiz = null; renderQuiz(); };
   }
 
@@ -2341,8 +2457,10 @@
      ------------------------------------------------------------ */
   window.__DBG = {
     state, DEBUG, shapes, provinceShapes, albers, frame, INSET,
+    inv: (x, y) => ALBERS.inv(x, y), elevAt, wrongAll, readoutAt,
     metrics: () => ({ W, H, DPR, baseS, cx, cy, wb }),
     screen: (lon, lat) => { const p = albers(lon, lat); return [sx(p[0]), sy(p[1])]; },
+    w2s: (wx, wy) => [sx(wx), sy(wy)],
     overlaps() {
       const L = DEBUG.labels; let n = 0; const pairs = [];
       for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {

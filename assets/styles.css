@@ -938,3 +938,24 @@ dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2p
 .tour-btn:hover { color: var(--ink); border-color: rgb(var(--gold-rgb) / .38); }
 .tour-btn.primary { background: rgb(var(--gold-rgb) / .14); border-color: rgb(var(--gold-rgb) / .45); color: var(--gold-2); }
 .tour-btn.primary:hover { background: rgb(var(--gold-rgb) / .22); color: var(--ink); }
+
+/* 鼠标位置读数（经纬度 / 海拔） */
+.readout {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgb(var(--surface-rgb) / 0.62);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--muted); pointer-events: none;
+  opacity: 0; transition: opacity 0.18s ease;
+  white-space: nowrap;
+}
+.readout.is-on { opacity: 1; }
+.readout [data-ro="alt"] { color: var(--ink-soft); }
+.readout [data-ro="alt"]::before { content: "·"; margin-right: 8px; color: var(--faint); }
+@media (max-width: 760px) { .readout { display: none; } }
+
+.quiz-mode button.flat { color: var(--muted); border-style: dashed; }
+.quiz-mode button.flat:hover { color: var(--coral); border-color: rgb(var(--coral-rgb) / 0.5); }
