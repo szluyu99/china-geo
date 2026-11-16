@@ -1349,7 +1349,7 @@
     } else {
       const step = Math.abs(e) >= 1000 ? 50 : 10;
       const m = Math.round(e / step) * step;
-      alt = `海拔 ${m < 0 ? '−' + Math.abs(m) : '≈ ' + m} m`;
+      alt = m === 0 ? '海拔 < 10 m' : `海拔 ${m < 0 ? '−' + Math.abs(m) : '≈ ' + m} m`;
     }
     el.innerHTML = `<span data-ro="ll">${lon.toFixed(dec)}°E · ${lat.toFixed(dec)}°N</span>${alt ? `<span data-ro="alt">${alt}</span>` : ''}`;
     el.classList.add('is-on');
