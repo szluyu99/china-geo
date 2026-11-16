@@ -245,6 +245,10 @@
   let W = 1, H = 1, DPR = 1, baseS = 1, cx = 0, cy = 0;
   let dirty = true, pickDirty = true, raf = 0, anim = null;
 
+  // 前庭敏感用户：把入场与飞行都变成瞬间到位
+  const motionMQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const reducedMotion = () => !!(motionMQ && motionMQ.matches);
+
   function computeBase() {
     const bw = landBBox[2] - landBBox[0], bh = landBBox[3] - landBBox[1];
     baseS = Math.min((W * 0.94) / bw, (H * 0.9) / bh);
@@ -919,6 +923,7 @@
      视图控制
      ------------------------------------------------------------ */
   function setView(v, animateMs = 0) {
+    if (reducedMotion()) animateMs = 0;
     if (animateMs) {
       anim = { t0: performance.now(), ms: animateMs, from: { ...state.view }, to: v };
       if (!raf) raf = requestAnimationFrame(tick);
@@ -969,14 +974,49 @@
      ------------------------------------------------------------ */
   let pointer = { down: false, moved: false, x: 0, y: 0, sx: 0, sy: 0 };
 
+  // 双指缩放：Pointer Events 只有一个 pointer 时会当成拖拽，这里单独记一份
+  const touches = new Map();
+  let pinch = null;
+  const midOf = () => {
+    const [a, b] = [...touches.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
+
   canvas.addEventListener('pointerdown', (e) => {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) {
+      pinch = midOf();
+      pointer.down = false;
+      canvas.classList.remove('is-dragging');
+      anim = null;
+      return;
+    }
     if (e.button !== 0) return;
     pointer = { down: true, moved: false, x: e.clientX, y: e.clientY, sx: state.view.tx, sy: state.view.ty };
-    canvas.setPointerCapture(e.pointerId);
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件或已释放的指针 */ }
     anim = null;
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' || touches.has(e.pointerId)) {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      else if (touches.size < 2) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pinch && touches.size >= 2) {
+      const now = midOf();
+      const r = canvas.getBoundingClientRect();
+      if (pinch.d > 0 && now.d > 0) {
+        zoomAt(now.x - r.left, now.y - r.top, now.d / pinch.d, 0);
+        // 双指整体移动时顺便平移，手感更顺
+        state.view.tx += now.x - pinch.x;
+        state.view.ty += now.y - pinch.y;
+        pickDirty = true;
+        requestDraw();
+      }
+      pinch = now;
+      tip.classList.remove('is-on');
+      return;
+    }
     if (pointer.down) {
       const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) {
@@ -996,11 +1036,20 @@
   });
 
   canvas.addEventListener('pointerup', (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
     const wasDown = pointer.down;
     pointer.down = false;
     canvas.classList.remove('is-dragging');
     if (!wasDown || pointer.moved) return;
     handleClick(e.clientX, e.clientY);
+  });
+
+  canvas.addEventListener('pointercancel', (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+    pointer.down = false;
+    canvas.classList.remove('is-dragging');
   });
 
   canvas.addEventListener('pointerleave', () => {
@@ -1942,12 +1991,30 @@
   $$('#tabs .tab').forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
 
   window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+
     if (e.key === 'Escape') {
+      if (typing) { t.blur(); return; }
       state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
       renderPanel(); requestDraw();
+      return;
     }
-    if (e.key === '+' || e.key === '=') zoomAt(W / 2, H / 2, 1.3);
-    if (e.key === '-') zoomAt(W / 2, H / 2, 1 / 1.3);
+    if (typing) return;   // 在搜索框里打 +、-、0 不该动地图
+
+    if (e.key === '+' || e.key === '=') { zoomAt(W / 2, H / 2, 1.3); e.preventDefault(); return; }
+    if (e.key === '-' || e.key === '_') { zoomAt(W / 2, H / 2, 1 / 1.3); e.preventDefault(); return; }
+    if (e.key === '0') { resetView(); e.preventDefault(); return; }
+
+    const stepPan = 90;
+    const pan = { ArrowLeft: [stepPan, 0], ArrowRight: [-stepPan, 0], ArrowUp: [0, stepPan], ArrowDown: [0, -stepPan] }[e.key];
+    if (pan) {
+      // 连续按方向键时，以动画目标为基准累加，否则上一次的位移会被吃掉
+      const base = anim && anim.to ? anim.to : state.view;
+      setView({ k: base.k, tx: base.tx + pan[0], ty: base.ty + pan[1] }, 140);
+      pickDirty = true;
+      e.preventDefault();
+    }
   });
 
   const ro = new ResizeObserver(() => resize());
@@ -1988,6 +2055,7 @@
 
   renderKnowledge();
   setTab('explore');
-  // 入场：先扫过一遍
-  setTimeout(() => { state.reveal = 0; requestDraw(); }, 30);
+  // 入场：先扫过一遍（减少动态效果时直接显示，不做扫光）
+  if (reducedMotion()) state.reveal = 1;
+  else setTimeout(() => { state.reveal = 0; requestDraw(); }, 30);
 })();
