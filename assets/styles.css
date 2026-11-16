@@ -470,6 +470,11 @@ body::before {
   background: rgb(var(--ink-rgb) / 0.025);
 }
 .chip.is-accent { border-color: rgb(var(--gold-rgb) / 0.3); color: var(--gold-2); background: var(--gold-soft); }
+button.chip { cursor: pointer; font-family: inherit; line-height: 1.35; transition: color .18s, border-color .18s, background .18s; }
+button.chip:hover { color: var(--ink); border-color: var(--line-strong); }
+button.chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+button.chip.is-on { color: var(--on-gold); background: var(--gold); border-color: var(--gold); font-weight: 600; }
+.chip-label { font-size: 10.5px; color: var(--dim); letter-spacing: .04em; align-self: center; margin-right: 2px; }
 
 .rule { height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
 .note-box {

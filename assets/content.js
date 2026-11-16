@@ -421,5 +421,51 @@ window.CN_CONTENT = (function () {
     path: [[122.0,50.2],[119.5,45.6],[117.2,42.9],[113.6,41.0],[110.0,38.4],[106.2,36.2],[103.8,36.0],[100.4,35.0],[96.2,33.2],[92.0,30.6],[88.2,28.6]]
   };
 
-  return { regions, steps, climates, provinces, rivers, mountains, lines, profile, landforms, extremes, neighbors, facts, notes, cities, crops, agriLine };
+  /* 气温站点（1 月 / 7 月平均气温，℃）——用于插值绘制等温线，取自常年气候平均值 */
+  const stations = [
+    { name:'哈尔滨', lon:126.63, lat:45.75, jan:-18.3, jul:23.0 },
+    { name:'长春',   lon:125.32, lat:43.90, jan:-15.1, jul:23.2 },
+    { name:'沈阳',   lon:123.43, lat:41.80, jan:-11.0, jul:24.6 },
+    { name:'大连',   lon:121.62, lat:38.91, jan:-3.9,  jul:24.0 },
+    { name:'北京',   lon:116.41, lat:39.90, jan:-3.1,  jul:26.7 },
+    { name:'天津',   lon:117.20, lat:39.13, jan:-3.4,  jul:26.9 },
+    { name:'石家庄', lon:114.51, lat:38.04, jan:-2.3,  jul:26.9 },
+    { name:'呼和浩特', lon:111.75, lat:40.84, jan:-11.6, jul:22.6 },
+    { name:'太原',   lon:112.55, lat:37.87, jan:-7.0,  jul:23.5 },
+    { name:'济南',   lon:117.00, lat:36.65, jan:-1.4,  jul:27.5 },
+    { name:'青岛',   lon:120.38, lat:36.07, jan:-0.5,  jul:25.3 },
+    { name:'郑州',   lon:113.62, lat:34.75, jan:0.9,   jul:27.0 },
+    { name:'西安',   lon:108.94, lat:34.34, jan:-0.5,  jul:26.9 },
+    { name:'兰州',   lon:103.83, lat:36.06, jan:-5.3,  jul:22.4 },
+    { name:'西宁',   lon:101.78, lat:36.62, jan:-7.4,  jul:17.2 },
+    { name:'银川',   lon:106.23, lat:38.49, jan:-8.4,  jul:23.3 },
+    { name:'乌鲁木齐', lon:87.62, lat:43.79, jan:-12.6, jul:23.7 },
+    { name:'喀什',   lon:75.99, lat:39.47, jan:-5.6,  jul:25.8 },
+    { name:'拉萨',   lon:91.11, lat:29.65, jan:-1.0,  jul:15.5 },
+    { name:'成都',   lon:104.07, lat:30.57, jan:5.6,  jul:25.6 },
+    { name:'重庆',   lon:106.55, lat:29.56, jan:7.9,  jul:28.6 },
+    { name:'昆明',   lon:102.83, lat:24.88, jan:8.1,  jul:19.9 },
+    { name:'贵阳',   lon:106.63, lat:26.65, jan:5.0,  jul:24.0 },
+    { name:'武汉',   lon:114.31, lat:30.60, jan:3.0,  jul:28.8 },
+    { name:'长沙',   lon:112.94, lat:28.23, jan:4.7,  jul:29.2 },
+    { name:'南昌',   lon:115.89, lat:28.68, jan:5.9,  jul:29.6 },
+    { name:'合肥',   lon:117.28, lat:31.86, jan:2.6,  jul:28.2 },
+    { name:'南京',   lon:118.80, lat:32.06, jan:2.5,  jul:28.1 },
+    { name:'上海',   lon:121.47, lat:31.23, jan:4.2,  jul:28.6 },
+    { name:'杭州',   lon:120.16, lat:30.27, jan:5.0,  jul:28.6 },
+    { name:'福州',   lon:119.30, lat:26.08, jan:10.5, jul:28.9 },
+    { name:'广州',   lon:113.26, lat:23.13, jan:13.9, jul:28.9 },
+    { name:'南宁',   lon:108.37, lat:22.82, jan:13.0, jul:28.4 },
+    { name:'海口',   lon:110.20, lat:20.04, jan:17.7, jul:28.9 },
+    { name:'三亚',   lon:109.51, lat:18.25, jan:21.5, jul:28.8 },
+    { name:'香港',   lon:114.17, lat:22.32, jan:16.2, jul:28.9 }
+  ];
+
+  /* 等温线取值（℃） */
+  const isoLevels = {
+    jan: [-20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20],
+    jul: [10, 14, 18, 22, 26, 30]
+  };
+
+  return { regions, steps, climates, provinces, rivers, mountains, lines, profile, landforms, extremes, neighbors, facts, notes, cities, crops, agriLine, stations, isoLevels };
 })();

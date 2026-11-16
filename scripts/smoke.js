@@ -254,6 +254,60 @@ class CDP {
     ok(figs.n === 4 && figs.boxed === 4, '速记页四张示意图没有画出来', figs);
     ok(figs.texts >= 10, '示意图缺少标注', figs);
 
+    // 等温线：切换后画面变化，且 11 条线都有标注
+    const iso = await cdp.eval(`
+      // 前面的用例可能停在闯关里，先退出来再切视图
+      for (let i = 0; i < 3 && __DBG.state.quiz && __DBG.state.quiz.active; i++) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      const tabBtn = document.querySelector('#tabs .tab[data-tab="climate"]');
+      if (!tabBtn) return { err: 'no tab', tabs: document.querySelectorAll('#tabs .tab').length, body: document.body.dataset.tab, tab: __DBG.state.tab };
+      tabBtn.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const isoBtn = document.querySelector('[data-iso="jan"]');
+      if (!isoBtn) return { err: 'no iso btn', tab: __DBG.state.tab, panel: (document.querySelector('#panel h2') || {}).textContent };
+      const c = document.querySelector('#map'); const g = c.getContext('2d');
+      const a = g.getImageData(0, 0, c.width, c.height).data;
+      isoBtn.click();
+      await new Promise((r) => setTimeout(r, 700));
+      const b = g.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i+1] - b[i+1]) + Math.abs(a[i+2] - b[i+2]) > 24) n++;
+      const lines = __DBG.iso('jan');
+      const placed = __DBG.isoLabels().filter((l) => l.placed).length;
+      return { changed: n, levels: lines.length, placed, pts: lines.reduce((s2, l) => s2 + l.pts, 0) };
+    `);
+    ok(iso.changed > 5000, '1 月等温线没有画出来', iso);
+    ok(iso.levels === 11 && iso.pts > 2000, '等温线条数或路径异常', iso);
+    ok(iso.placed >= 8, '等温线标注缺失', iso);
+
+    // 气泡图：切到人口后画面出现气泡
+    const bub = await cdp.eval(`
+      for (let i = 0; i < 3 && !document.querySelector('[data-bubble]'); i++) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        document.querySelector('#tabs .tab[data-tab="explore"]').click();
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      const bubBtn = document.querySelector('[data-bubble="pop"]');
+      if (!bubBtn) return { err: 'no bubble btn', selected: __DBG.state.selected };
+      const c = document.querySelector('#map'); const g = c.getContext('2d');
+      const a = g.getImageData(0, 0, c.width, c.height).data;
+      bubBtn.click();
+      await new Promise((r) => setTimeout(r, 600));
+      const b = g.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i+1] - b[i+1]) + Math.abs(a[i+2] - b[i+2]) > 20) n++;
+      const on = __DBG.state.bubble;
+      const off = document.querySelector('[data-bubble=""]');
+      if (off) off.click();
+      const offI = document.querySelector('[data-iso=""]');
+      if (offI) offI.click();
+      return { changed: n, bubble: on };
+    `);
+    ok(bub.bubble === 'pop', '气泡图按钮没有生效', bub);
+    ok(bub.changed > 3000, '人口气泡图没有画出来', bub);
+
     // 动态层：水系视图两帧之间画面会变
     const anim = await cdp.eval(`
       document.querySelector('#tabs .tab[data-tab="water"]').click();
@@ -391,5 +445,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/动画/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/气泡/动画/主题/深链接');
 })();

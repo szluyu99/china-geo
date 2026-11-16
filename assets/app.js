@@ -36,6 +36,8 @@
     layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false },
     selected: null,
     hover: null,
+    iso: null,        // 'jan' | 'jul' | null 等温线
+    bubble: null,     // 'pop' | 'area' | null 气泡图
     hoverMountain: null,
     hoverRiver: null,
     selectedMountain: null,
@@ -72,6 +74,7 @@
     agri: 'rgba(120,190,170,0.62)',
     riverCasing: 'rgba(4,10,14,0.55)', riverActive: 'rgba(255,255,255,0.55)',
     monsoonWarm: 'rgba(226,178,102,0.9)', monsoonCold: 'rgba(120,190,224,0.9)',
+    isoCold: 'rgba(120,172,214,0.92)', isoWarm: 'rgba(226,150,96,0.92)', isoZero: 'rgba(232,196,120,0.95)', isoText: 'rgba(238,242,246,0.95)', bubble: '#5fbfa3',
     mtn: 'rgba(232,206,150,0.82)', mtnActive: '#f6d79b', mtnShadow: 'rgba(0,0,0,0.6)',
     sel: 'rgba(255,214,140,0.95)', selGlow: 'rgba(255,196,110,0.55)',
     capDot: 'rgba(255,255,255,0.9)', capDotEdge: 'rgba(12,20,26,0.9)', capText: 'rgba(233,240,244,0.9)',
@@ -102,6 +105,7 @@
     agri: 'rgba(46,132,112,0.62)',
     riverCasing: 'rgba(255,255,255,0.62)', riverActive: 'rgba(20,60,90,0.45)',
     monsoonWarm: 'rgba(168,116,34,0.75)', monsoonCold: 'rgba(40,108,142,0.75)',
+    isoCold: 'rgba(42,104,150,0.88)', isoWarm: 'rgba(184,88,44,0.88)', isoZero: 'rgba(158,104,20,0.95)', isoText: 'rgba(28,36,44,0.95)', bubble: '#1e7866',
     mtn: 'rgba(150,112,52,0.9)', mtnActive: '#8a5f14', mtnShadow: 'rgba(80,60,30,0.25)',
     sel: 'rgba(150,102,20,0.95)', selGlow: 'rgba(196,146,52,0.42)',
     capDot: 'rgba(255,255,255,0.95)', capDotEdge: 'rgba(64,52,34,0.85)', capText: 'rgba(46,54,60,0.92)',
@@ -130,6 +134,7 @@
     agri: 'rgba(34,120,104,0.62)',
     riverCasing: 'rgba(255,255,255,0.7)', riverActive: 'rgba(16,58,88,0.45)',
     monsoonWarm: 'rgba(150,104,30,0.78)', monsoonCold: 'rgba(32,98,132,0.78)',
+    isoCold: 'rgba(36,96,140,0.9)', isoWarm: 'rgba(176,80,38,0.9)', isoZero: 'rgba(146,96,18,0.95)', isoText: 'rgba(24,32,40,0.95)', bubble: '#1a7060',
     insetBg: 'rgba(255,255,255,0.9)', insetLand: 'rgba(118,124,130,0.42)',
     halo: 'rgba(250,252,254,0.9)', vignette: 'rgba(90,110,130,0.14)',
     profGrid: 'rgba(40,60,80,0.10)', profAxis: 'rgba(60,80,100,0.75)',
@@ -156,7 +161,8 @@
   function savePrefs() {
     try {
       localStorage.setItem(PREF_KEY, JSON.stringify({
-        theme: state.theme, layers: state.layers, layersTouched: state.layersTouched, themePinned: state.themePinned
+        theme: state.theme, layers: state.layers, layersTouched: state.layersTouched, themePinned: state.themePinned,
+        iso: state.iso, bubble: state.bubble
       }));
     } catch (e) { /* 隐私模式忽略 */ }
   }
@@ -196,6 +202,8 @@
     if (state.selected) q.set('p', state.selected);
     if (state.selectedRiver) q.set('river', state.selectedRiver);
     if (state.selectedMountain) q.set('mountain', state.selectedMountain);
+    if (state.iso) q.set('iso', state.iso);
+    if (state.bubble) q.set('bubble', state.bubble);
     const url = location.pathname + '?' + q.toString() + location.hash;
     try { history.replaceState(null, '', url); } catch (e) { /* file:// 下可能被拒 */ }
   }
@@ -209,6 +217,10 @@
     if (tab && TAB_PRESET[tab]) setTab(tab);
     const p = q.get('p');
     if (p && PROV_BY_NAME[p]) selectProvince(p);
+    const iso = q.get('iso');
+    if (iso === 'jan' || iso === 'jul') { state.iso = iso; if (state.tab !== 'climate') setTab('climate'); }
+    const bubble = q.get('bubble');
+    if (bubble === 'pop' || bubble === 'area') { state.bubble = bubble; if (state.tab !== 'explore') setTab('explore'); }
     const river = q.get('river');
     if (river) {
       const r = C.rivers.find((x) => x.name === river);
@@ -628,9 +640,12 @@
     drawRivers();
     drawMountains();
     drawSelection();
+    drawIsotherms();
+    drawBubbles();
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     drawLabels();
+    drawIsoLabels();
     drawInset();
     drawVignette();
     drawScale();
@@ -644,6 +659,7 @@
       state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', JSON.stringify(state.hi || ''), state.selected || '',
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
+      state.iso || '', state.bubble || '',
       state.forceLabelsUntil > performance.now() ? 1 : 0,
       state.quiz && state.quiz.active ? 1 : 0
     ].join('|');
@@ -1058,6 +1074,233 @@
   };
   let labelRects = [];
   const DEBUG = { labels: [], draws: 0, attempts: 0, rejects: 0, err: null };
+
+  /* ------------------------------------------------------------
+     等温线：站点气温 → 海拔订正 → 反距离插值 → 等值线追踪
+     ------------------------------------------------------------ */
+  const ISO_CACHE = {};
+  const FIELD = { lon0: 72, lat0: 16, step: 0.5, nx: 129, ny: 77 };
+  let isoLabels = [];
+
+  function isoField(month) {
+    if (ISO_CACHE[month]) return ISO_CACHE[month];
+    const st = (C.stations || []).map((s) => {
+      const z = elevAt(s.lon, s.lat);
+      return { lon: s.lon, lat: s.lat, t: (month === 'jan' ? s.jan : s.jul) + 0.0065 * (z || 0) };
+    });
+    const { lon0, lat0, step, nx, ny } = FIELD;
+    const vals = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      const lat = lat0 + j * step;
+      const cosLat = Math.cos((lat * Math.PI) / 180);
+      for (let i = 0; i < nx; i++) {
+        const lon = lon0 + i * step;
+        let wsum = 0, vsum = 0;
+        for (let n = 0; n < st.length; n++) {
+          const s = st[n];
+          const dx = (lon - s.lon) * cosLat, dy = lat - s.lat;
+          const d2 = dx * dx + dy * dy + 2e-3;
+          const w = 1 / (d2 * Math.sqrt(d2));
+          wsum += w; vsum += w * s.t;
+        }
+        const z = elevAt(lon, lat);
+        vals[j * nx + i] = vsum / wsum - 0.0065 * (z === null ? 0 : z);
+      }
+    }
+    ISO_CACHE[month] = { nx, ny, lon0, lat0, step, vals };
+    return ISO_CACHE[month];
+  }
+
+  function isoJoin(segs) {
+    const key = (p) => p[0].toFixed(2) + ',' + p[1].toFixed(2);
+    const map = new Map();
+    segs.forEach((sg, i) => {
+      for (const p of sg) {
+        const k2 = key(p);
+        if (!map.has(k2)) map.set(k2, []);
+        map.get(k2).push(i);
+      }
+    });
+    const used = new Uint8Array(segs.length);
+    const lines = [];
+    for (let i = 0; i < segs.length; i++) {
+      if (used[i]) continue;
+      used[i] = 1;
+      const pts = [segs[i][0], segs[i][1]];
+      const extend = (atEnd) => {
+        for (let guard = 0; guard < 4000; guard++) {
+          const tip = atEnd ? pts[pts.length - 1] : pts[0];
+          const cand = map.get(key(tip)) || [];
+          let hit = -1, flip = false;
+          for (const ci of cand) {
+            if (used[ci]) continue;
+            hit = ci;
+            flip = key(segs[ci][0]) === key(tip);
+            break;
+          }
+          if (hit < 0) return;
+          used[hit] = 1;
+          const sg = segs[hit];
+          const next = flip ? sg[1] : sg[0];
+          if (atEnd) pts.push(next); else pts.unshift(next);
+        }
+      };
+      extend(true); extend(false);
+      if (pts.length >= 3) lines.push(pts);
+    }
+    return lines;
+  }
+
+  function isoLines(month) {
+    const ck = 'lines:' + month;
+    if (ISO_CACHE[ck]) return ISO_CACHE[ck];
+    const f = isoField(month);
+    const levels = (C.isoLevels && C.isoLevels[month]) || [];
+    const { nx, ny, lon0, lat0, step, vals } = f;
+    const at = (i, j) => vals[j * nx + i];
+    const byLevel = levels.map(() => []);
+    for (let j = 0; j < ny - 1; j++) {
+      for (let i = 0; i < nx - 1; i++) {
+        const v0 = at(i, j), v1 = at(i + 1, j), v2 = at(i + 1, j + 1), v3 = at(i, j + 1);
+        const lo = Math.min(v0, v1, v2, v3), hi = Math.max(v0, v1, v2, v3);
+        const x0 = lon0 + i * step, x1 = x0 + step;
+        const y0 = lat0 + j * step, y1 = y0 + step;
+        for (let li = 0; li < levels.length; li++) {
+          const lv = levels[li];
+          if (lv < lo || lv > hi) continue;
+          const pts = [];
+          const edge = (a, b, ax, ay, bx, by) => {
+            if ((a - lv) * (b - lv) <= 0 && a !== b) {
+              const t = (lv - a) / (b - a);
+              pts.push([ax + (bx - ax) * t, ay + (by - ay) * t]);
+            }
+          };
+          edge(v0, v1, x0, y0, x1, y0);
+          edge(v1, v2, x1, y0, x1, y1);
+          edge(v2, v3, x1, y1, x0, y1);
+          edge(v3, v0, x0, y1, x0, y0);
+          if (pts.length >= 2) {
+            byLevel[li].push([pts[0], pts[1]]);
+            if (pts.length === 4) byLevel[li].push([pts[2], pts[3]]);
+          }
+        }
+      }
+    }
+    const out = levels.map((v, li) => ({ v, lines: isoJoin(byLevel[li]) }));
+    ISO_CACHE[ck] = out;
+    return out;
+  }
+
+  // Chaikin 平滑一次：0.5° 网格直接连线会有明显折角
+  function smoothLine(pts) {
+    if (pts.length < 6) return pts;
+    const out = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+      out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  function drawIsotherms() {
+    if (!state.iso) { isoLabels = []; return; }
+    const k = baseS * state.view.k;   // 世界单位 → 像素
+    const data = isoLines(state.iso);
+    isoLabels = [];
+    ctx.save();
+    ctx.clip(LAND_PATH);            // 站点都在陆地，海上不画，免得画出无依据的线
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (const lvl of data) {
+      if (!lvl.lines.length) continue;
+      ctx.strokeStyle = lvl.v === 0 ? TH.isoZero : lvl.v < 0 ? TH.isoCold : TH.isoWarm;
+      ctx.lineWidth = (lvl.v === 0 ? 1.9 : 1.15) / k;
+      ctx.globalAlpha = lvl.v === 0 ? 0.95 : 0.8;
+      let best = null;
+      for (const raw of lvl.lines) {
+        const pts = smoothLine(raw);
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const [wx, wy] = albers(pts[i][0], pts[i][1]);
+          if (i === 0) ctx.moveTo(wx, wy); else ctx.lineTo(wx, wy);
+        }
+        ctx.stroke();
+        if (!best || raw.length > best.length) best = raw;
+      }
+      if (best && best.length > 14) {
+        const cands = [0.5, 0.34, 0.66, 0.22, 0.78].map((f) => {
+          const q = best[Math.floor(best.length * f)];
+          const [wx, wy] = albers(q[0], q[1]);
+          return { x: sx(wx), y: sy(wy) };
+        });
+        isoLabels.push({ v: lvl.v, zero: lvl.v === 0, cands, x: cands[0].x, y: cands[0].y });
+      }
+    }
+    ctx.restore();
+  }
+
+  function isoLabelFits(box) {
+    const pad = 3;
+    for (const r of DEBUG.labels) {
+      if (box.x - pad < r.x + r.w + pad && box.x + box.w + pad > r.x - pad
+        && box.y - pad < r.y + r.h + pad && box.y + box.h + pad > r.y - pad) return false;
+    }
+    for (const r of isoLabels) {
+      if (!r.placed || !r.box) continue;
+      const q = r.box;
+      if (box.x < q.x + q.w + pad && box.x + box.w + pad > q.x && box.y < q.y + q.h + pad && box.y + box.h + pad > q.y) return false;
+    }
+    return true;
+  }
+
+  function drawIsoLabels() {
+    if (!state.iso || !isoLabels.length) return;
+    const fmt = (v) => (v < 0 ? '−' + Math.abs(v) : String(v)) + '℃';
+    for (const l of isoLabels) {
+      const txt = fmt(l.v);
+      const w = (l.zero ? 30 : 26), h = 12;
+      for (const c of (l.cands || [{ x: l.x, y: l.y }])) {
+        const box = { x: c.x - w / 2, y: c.y - h / 2, w, h };
+        if (!isoLabelFits(box)) continue;
+        drawText(txt, c.x, c.y, {
+          font: (l.zero ? '600 11px ' : '10px ') + FONT_SANS,
+          color: l.zero ? TH.isoZero : l.v < 0 ? TH.isoCold : TH.isoWarm,
+          align: 'center', base: 'middle', halo: true
+        });
+        l.placed = true; l.box = box;
+        break;
+      }
+    }
+  }
+
+  /* 气泡图：人口 / 面积 */
+  function drawBubbles() {
+    if (!state.bubble) return;
+    const k = baseS * state.view.k;   // 世界单位 → 像素
+    const key = state.bubble === 'pop' ? 'pop' : 'area';
+    let max = 1;
+    for (const p of C.provinces) max = Math.max(max, p[key] || 0);
+    const R = Math.min(W, H) * 0.075;
+    ctx.save();
+    for (const p of C.provinces) {
+      const v = p[key] || 0;
+      if (!v) continue;
+      const r = Math.sqrt(v / max) * R;
+      const [wx, wy] = albers(p.capCoord[0], p.capCoord[1]);
+      ctx.beginPath();
+      ctx.arc(wx, wy, r / k, 0, Math.PI * 2);
+      ctx.fillStyle = TH.bubble;
+      ctx.globalAlpha = 0.14;
+      ctx.fill();
+      ctx.globalAlpha = 0.62;
+      ctx.strokeStyle = TH.bubble;
+      ctx.lineWidth = 1.1 / k;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   function drawLabels() {
     labelRects = [];
@@ -1710,7 +1953,9 @@
     if (!name) { tip.classList.remove('is-on'); return; }
     const p = PROV_BY_NAME[name];
     if (!p) return;
-    showTip(ox, oy, p.name, [p.short, capLabel(p), `面积第 ${RANK.area[p.name]} · 人口第 ${RANK.pop[p.name]}`]);
+    const extra = state.bubble === 'pop' ? `人口 ${p.pop.toLocaleString('zh-CN')} 万`
+      : state.bubble === 'area' ? `面积 ${p.area} 万 km²` : null;
+    showTip(ox, oy, p.name, [p.short, capLabel(p), `面积第 ${RANK.area[p.name]} · 人口第 ${RANK.pop[p.name]}`, extra].filter(Boolean));
   }
 
   function showTip(x, y, name, subs) {
@@ -1887,12 +2132,24 @@
             <span class="li-desc">${C.regions[r].desc}</span>
           </button>`).join('')}
       </div>
+      <div class="chips" role="group" aria-label="气泡图">
+        <span class="chip-label">气泡图</span>
+        <button class="chip ${!state.bubble ? 'is-on' : ''}" data-bubble="">关</button>
+        <button class="chip ${state.bubble === 'pop' ? 'is-on' : ''}" data-bubble="pop">人口</button>
+        <button class="chip ${state.bubble === 'area' ? 'is-on' : ''}" data-bubble="area">面积</button>
+      </div>
       <div class="note-box"><b>试试看：</b>点击地图上的省份，或者用左侧搜索框输入「拉萨」「桂」「成都」，看看会发生什么。</div>
       <div class="chips">
         <span class="chip is-accent">点击省份</span>
         <span class="chip">切换着色</span>
         <span class="chip">拖拽缩放</span>
       </div>`;
+    panel.querySelectorAll('[data-bubble]').forEach((b) => {
+      b.onclick = () => {
+        state.bubble = b.dataset.bubble || null;
+        savePrefs(); renderPanel(); requestDraw(); syncURL();
+      };
+    });
     panel.querySelectorAll('[data-region]').forEach((b) => {
       b.onclick = () => {
         const r = b.dataset.region;
@@ -2010,7 +2267,20 @@
       </div>
       <div class="note-box"><b>秦岭—淮河线：</b>1 月 0℃ 等温线、800 mm 年等降水量线大致从这里穿过。线以北是暖温带、旱地小麦；线以南是亚热带、水田稻作。</div>
       <div class="note-box"><b>干湿地带：</b>从东南沿海向西北，年降水量由 1600 mm 降到 50 mm 以下，植被依次是森林 → 草原 → 荒漠。</div>
+      <div class="note-box"><b>等温线：</b>由 36 个站点气温插值、再按海拔订正得到，能看出青藏高原的闭合低温区与吐鲁番盆地的高温区。</div>
+      <div class="chips" role="group" aria-label="等温线">
+        <span class="chip-label">等温线</span>
+        <button class="chip ${!state.iso ? 'is-on' : ''}" data-iso="">关</button>
+        <button class="chip ${state.iso === 'jan' ? 'is-on' : ''}" data-iso="jan">1 月</button>
+        <button class="chip ${state.iso === 'jul' ? 'is-on' : ''}" data-iso="jul">7 月</button>
+      </div>
       <div class="note-box"><b>读图提示：</b>地图按「主导气候类型」给省份着色，实际省界内常有过渡，例如陕西南北就横跨两个气候带。</div>`;
+    panel.querySelectorAll('[data-iso]').forEach((b) => {
+      b.onclick = () => {
+        state.iso = b.dataset.iso || null;
+        savePrefs(); renderPanel(); requestDraw(); syncURL();
+      };
+    });
     panel.querySelectorAll('[data-clim]').forEach((b) => {
       b.onclick = () => {
         const id = b.dataset.clim;
@@ -3072,6 +3342,23 @@
     state, DEBUG, shapes, provinceShapes, albers, frame, INSET,
     inv: (x, y) => ALBERS.inv(x, y), elevAt, wrongAll, readoutAt,
     redraw: () => { cachedKey = ''; requestDraw(); },
+    iso: (month) => {
+      const m = month || state.iso;
+      if (!m) return null;
+      const d = isoLines(m);
+      return d.map((l) => ({ v: l.v, n: l.lines.length, pts: l.lines.reduce((a, p) => a + p.length, 0), len: l.lines.length ? Math.max(...l.lines.map((p) => p.length)) : 0 }));
+    },
+    isoLabels: () => isoLabels.slice(),
+    isoAt: (month, lon, lat) => {
+      const f = isoField(month);
+      const fx = (lon - f.lon0) / f.step, fy = (lat - f.lat0) / f.step;
+      const i = Math.min(f.nx - 2, Math.max(0, Math.floor(fx))), j = Math.min(f.ny - 2, Math.max(0, Math.floor(fy)));
+      const tx = fx - i, ty = fy - j;
+      const v = (a, b) => f.vals[b * f.nx + a];
+      const top = v(i, j) * (1 - tx) + v(i + 1, j) * tx;
+      const bot = v(i, j + 1) * (1 - tx) + v(i + 1, j + 1) * tx;
+      return +(top * (1 - ty) + bot * ty).toFixed(1);
+    },
     hill: () => {
       const t = hillTexture();
       if (!t) return null;
@@ -3114,6 +3401,8 @@
       state.layers = { ...state.layers, ...prefs.layers };
     }
     state.themePinned = !!prefs.themePinned;
+    if (prefs.iso === 'jan' || prefs.iso === 'jul') state.iso = prefs.iso;
+    if (prefs.bubble === 'pop' || prefs.bubble === 'area') state.bubble = prefs.bubble;
     applyTheme(prefs.theme || 'night', false);
   } else {
     // 头一次打开：跟随系统的浅色/深色偏好，别一上来就压一片黑

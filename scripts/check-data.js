@@ -111,6 +111,22 @@ for (const p of P) {
 }
 ok(C.agriLine && Array.isArray(C.agriLine.path) && C.agriLine.path.length >= 5, 'agriLine 折线缺失');
 
+// 气温站点与等温线
+const sts = C.stations || [];
+ok(sts.length >= 30, `气温站点太少：${sts.length}`);
+for (const st of sts) {
+  ok(!!st.name && typeof st.lon === 'number' && typeof st.lat === 'number', `站点字段不全：${JSON.stringify(st)}`);
+  ok(st.lon > 73 && st.lon < 136 && st.lat > 17 && st.lat < 54, `站点坐标越界：${st.name}`);
+  ok(st.jan > -30 && st.jan < 25, `1 月气温异常：${st.name} ${st.jan}`);
+  ok(st.jul > 5 && st.jul < 33, `7 月气温异常：${st.name} ${st.jul}`);
+  ok(st.jul > st.jan, `7 月气温不高于 1 月：${st.name}`);
+}
+for (const m of ['jan', 'jul']) {
+  const lv = (C.isoLevels || {})[m];
+  ok(Array.isArray(lv) && lv.length >= 4, `等温线取值缺失：${m}`);
+  for (let i = 1; i < lv.length; i++) ok(lv[i] > lv[i - 1], `等温线取值未递增：${m}`);
+}
+
 // 图形：34 个省 + 1 条九段线
 const shapes = (G.features || []).filter((f) => f.kind === 'province');
 ok(shapes.length === 34, `geo.js 里应有 34 个省级图形，实际 ${shapes.length}`);
