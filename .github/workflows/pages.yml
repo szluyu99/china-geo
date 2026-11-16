@@ -22,7 +22,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      - name: Check data (34 provinces / totals / quiz answers)
+        run: node scripts/check-data.js
 
       - name: Build single-file page
         run: node scripts/build-single.js
@@ -46,6 +49,9 @@ jobs:
           cp dist/china-geo.html _site/china-geo.html
           cp dist/china-geo.html _site/index.html   # 首页直接用单文件版，打开即用
           cp docs/preview.jpg _site/preview.jpg      # 社交分享预览图
+          cp 404.html _site/404.html
+          cp robots.txt _site/robots.txt
+          cp apple-touch-icon.png _site/apple-touch-icon.png
           ls -la _site
 
       - uses: actions/upload-pages-artifact@v3

@@ -1,5 +1,8 @@
 # 中国地理图谱 · 山河
 
+[![CI](https://github.com/szluyu99/china-geo/actions/workflows/ci.yml/badge.svg)](https://github.com/szluyu99/china-geo/actions/workflows/ci.yml)
+[![Deploy](https://github.com/szluyu99/china-geo/actions/workflows/pages.yml/badge.svg)](https://szluyu99.github.io/china-geo/)
+
 一个可以点、可以问、可以闯关的中国地理交互网页，用来在十几分钟里建立对「三级阶梯、大江大河、气候分区、34 个省级行政区」的直觉。
 
 ![中国地理图谱](docs/preview.jpg)
@@ -37,11 +40,30 @@ python3 -m http.server 8765
 | 气候 | 五种气候类型着色，秦岭—淮河与干湿地带说明 |
 | 水系 | 六条主要河流的走向与流域，点河流看源头、入海口、沿途省区 |
 | 速记 | 10 张知识卡：三级阶梯、四大高原、三大盆地、三大平原、分界线、气候、中国之最、邻国、海域、省级速记 |
-| 闯关 | 四种模式（混合 / 地图找省份 / 省会配对 / 地理常识），10 题一轮，带错题回顾 |
+| 闯关 | 四种模式（混合 / 地图找省份 / 省会配对 / 地理常识），10 题一轮；答完立刻给出解析，错题回顾也带解析 |
 
 地图交互：滚轮以光标为中心缩放，拖拽平移，`+` / `-` 缩放，`Esc` 取消选中；左栏切换着色方式、图层（省份名称 / 省会城市 / 山脉 / 河流 / 分界线）；右上角全站搜索（省份、简称、省会、河流、山脉）。右下角是南海诸岛附图。
 
+**分享指到具体位置**：地址栏会跟着当前状态变，比如
+`https://szluyu99.github.io/china-geo/?theme=paper&tab=climate&p=四川省`，
+或者 `?tab=water&river=长江`、`?tab=landform&mountain=秦岭`。参数支持 `theme`（night / paper / day）、`tab`（explore / landform / climate / water / quiz）、`p`、`river`、`mountain`，发给别人打开就是同一视图同一省份。
+
 **图层勾选会被记住**：勾过之后切视图、用搜索跳转、甚至刷新页面都不会被重置回默认（只有闯关视图会临时隐藏省名，出来自动恢复）。
+
+## 关于页
+
+右上角「关于」里写了数据来源与口径（DataV 边界、七普人口、河流长度的取值），以及「本图是教学示意、不能作为边界主张依据」的说明。`Esc` 或点遮罩关闭。
+
+## 开发与自检
+
+```bash
+npm run check    # 数据体检：34 省 / 面积与人口合计 / 题目答案 / 图形完整性
+npm run build    # check + 打包单文件
+npm run smoke    # 用本机 Chrome 跑冒烟测试（画布、标签不重叠、六视图、点击、搜索、主题、深链接）
+npm run verify   # check + smoke
+```
+
+两个脚本都零依赖：`check-data.js` 直接在 Node 里跑数据断言；`smoke.js` 用系统 Chrome 的 DevTools 协议驱动页面，找不到浏览器时可用 `CHROME=/path/to/chrome` 指定。CI 跑同一套（`.github/workflows/ci.yml`），PR 里会拦住改坏数据或改坏渲染的提交。
 
 ## 目录
 
@@ -96,6 +118,7 @@ git push -u origin main
 - **命中**：另建一张离屏 `pickCanvas`，把每个省画成一种颜色，点击时 `getImageData` 读回索引；山脉、河流则按到折线的距离判定。小省（京津沪港澳）额外有 12px 吸附半径。
 - **标签**：逐省尝试放置，用矩形碰撞剔除，先放大分界线 / 阶梯名占位，再放省名，保证 1440 / 1280 / 1100 / 1024 宽度下都无重叠。
 - **取景**：海南省在数据里含三沙群岛（最南到 3.8°N），主图只用海南岛范围参与取景，否则大陆会被压得很小；完整的南海用右下角附图呈现。
+- **性能**：静态层（海面、省填充、边界、标签、附图）画到一张离屏画布并缓存，缓存键由视图/主题/图层/选中项组成；鼠标在省份间移动只贴图 + 叠一层金色高亮，不再重画整张地图（实测 40 次跨省 hover 从 27 次长任务降到 0 次）。
 - **主题**：界面颜色走 CSS 变量（`--ink-rgb` 之类的通道三元组，深色用 `rgb(var(--x) / α)` 叠加），地图画布的颜色单独由 `NIGHT / PAPER / DAY` 三套调色板提供，`draw*` 只读 `TH.*`；浅色下省色会做一次压深（`mixHex`）并提高填充不透明度，避免整片发灰。
 
 ## 数据口径

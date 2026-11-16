@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 数据体检（省份数 / 面积与人口合计 / 题目答案 / 图形完整性）
+        run: node scripts/check-data.js
+
+      - name: 打包单文件
+        run: node scripts/build-single.js
+
+      - name: 冒烟测试（真实 Chrome，无第三方依赖）
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: node scripts/smoke.js
+
+      - name: 产物自包含检查
+        run: |
+          node -e "
+            const fs = require('fs');
+            const h = fs.readFileSync('dist/china-geo.html', 'utf8');
+            const refs = h.match(/(?:src|href)=\"assets\/[^\"]+/g) || [];
+            if (refs.length) { console.error('外部资源没有被内联：', refs); process.exit(1); }
+            if (!h.includes('<canvas')) { console.error('产物里没有 canvas'); process.exit(1); }
+            console.log('bundle ok:', (h.length / 1024).toFixed(0) + ' KB');
+          "

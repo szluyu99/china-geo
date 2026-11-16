@@ -840,3 +840,58 @@ body::before {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------- 关于 / 数据来源 ---------------- */
+.about-btn {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--ink-rgb) / 0.14);
+  background: rgb(var(--ink-rgb) / 0.04);
+  color: var(--dim);
+  font: 500 12px/1 var(--font-body, "PingFang SC", system-ui, sans-serif);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.about-btn:hover { color: var(--text); border-color: rgb(var(--gold-rgb) / 0.5); background: rgb(var(--gold-rgb) / 0.08); }
+.about-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+dialog#about {
+  width: min(560px, calc(100vw - 40px));
+  max-height: min(76vh, 720px);
+  padding: 0;
+  border: 1px solid rgb(var(--ink-rgb) / 0.16);
+  border-radius: 16px;
+  background: rgb(var(--surface-rgb) / 0.98);
+  color: var(--text);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+}
+dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2px); }
+.about-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid rgb(var(--ink-rgb) / 0.1);
+}
+.about-head h2 { margin: 0; font: 600 17px/1.2 var(--font-display); letter-spacing: 0.02em; }
+.about-close {
+  width: 30px; height: 30px; border-radius: 8px; border: 0;
+  background: rgb(var(--ink-rgb) / 0.06); color: var(--dim);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.about-close:hover { background: rgb(var(--ink-rgb) / 0.12); color: var(--text); }
+.about-body { padding: 14px 20px 20px; overflow: auto; max-height: calc(76vh - 60px); }
+.about-body p { margin: 0 0 10px; font-size: 13px; line-height: 1.75; color: var(--muted); }
+.about-body h3 { margin: 16px 0 8px; font: 600 12px/1 var(--font-body); letter-spacing: 0.12em; color: var(--gold); text-transform: uppercase; }
+.about-body ul { margin: 0 0 10px; padding-left: 18px; }
+.about-body li { font-size: 12.5px; line-height: 1.8; color: var(--muted); }
+.about-body li b { color: var(--text); font-weight: 600; }
+.about-body code { font: 11.5px/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; background: rgb(var(--ink-rgb) / 0.08); }
+.about-links { display: flex; gap: 8px; align-items: center; margin-top: 14px !important; }
+.about-links a { color: var(--jade); text-decoration: none; border-bottom: 1px solid rgb(var(--jade-rgb) / 0.35); }
+.about-links a:hover { color: var(--gold); border-color: rgb(var(--gold-rgb) / 0.5); }
+.about-links span { color: var(--dim); }
+
+.review .r-item .why { display: block; margin-top: 6px; font-size: 12px; line-height: 1.7; color: var(--dim); }

@@ -35,6 +35,7 @@
   })();
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1218'/%3E%3Cpath d='M5 23l6-9 4 5 3-4 9 8z' fill='%235fbfa3' opacity='.85'/%3E%3Ccircle cx='23' cy='8' r='3' fill='%23d8a657'/%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
@@ -62,6 +63,8 @@
     <div class="topbar-hint">
       <span class="dot"></span> 拖拽平移 · 滚轮缩放 · 点击省份
     </div>
+
+    <button class="about-btn" id="aboutBtn" aria-haspopup="dialog" aria-controls="about" title="关于与数据来源">关于</button>
 
     <div class="themer" id="themer" role="group" aria-label="配色主题">
       <button data-theme="night" class="sw-night" title="夜间" aria-label="夜间主题" aria-pressed="true"></button>
@@ -154,6 +157,33 @@
   </section>
 
 </div>
+
+<dialog id="about" aria-labelledby="aboutTitle">
+  <div class="about-head">
+    <h2 id="aboutTitle">关于这张图</h2>
+    <button class="about-close" id="aboutClose" aria-label="关闭">×</button>
+  </div>
+  <div class="about-body">
+    <p>一张可以点、可以问、可以闯关的中国地理图，用来建立基础的地理直觉：地势为什么西高东低、河流为什么向东流、人口为什么挤在一条线的东边。</p>
+    <h3>数据来源</h3>
+    <ul>
+      <li><b>省界与南海诸岛</b>：DataV.GeoAtlas 行政区划边界（阿里云），仅作教学示意。</li>
+      <li><b>人口</b>：第七次全国人口普查（2020 年），单位「万人」。</li>
+      <li><b>面积</b>：约数，单位「万平方公里」，不同资料对辖区与海域的统计口径略有差异。</li>
+      <li><b>河流长度、山脉海拔、气候分区</b>：按常见教材口径整理，与专业志书可能有个位数差异。</li>
+      <li><b>沿北纬 30° 地形剖面</b>：按公开地形资料抽样重绘，用于示意起伏，不是精确 DEM。</li>
+    </ul>
+    <h3>请这样使用</h3>
+    <p>本图是教学示意，<b>不能</b>作为边界主张、面积统计或行政隶属的依据。发现数据有误，欢迎提 issue 指正。</p>
+    <h3>技术</h3>
+    <p>原生 Canvas 2D + 手写 Albers 等积圆锥投影，零依赖、零后端、无追踪；单文件版本可离线打开。快捷键：方向键平移、<code>+</code>/<code>-</code> 缩放、<code>0</code> 复位、<code>Esc</code> 取消选中。</p>
+    <p class="about-links">
+      <a href="https://github.com/szluyu99/china-geo" target="_blank" rel="noopener">GitHub 仓库</a>
+      <span>·</span>
+      <a href="https://github.com/szluyu99/china-geo/issues" target="_blank" rel="noopener">反馈问题</a>
+    </p>
+  </div>
+</dialog>
 
 <script src="assets/geo.js"></script>
 <script src="assets/content.js"></script>

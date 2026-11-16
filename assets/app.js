@@ -132,7 +132,9 @@
   const PREF_KEY = 'cn-geo:prefs:v1';
   function savePrefs() {
     try {
-      localStorage.setItem(PREF_KEY, JSON.stringify({ theme: state.theme, layers: state.layers, layersTouched: state.layersTouched }));
+      localStorage.setItem(PREF_KEY, JSON.stringify({
+        theme: state.theme, layers: state.layers, layersTouched: state.layersTouched, themePinned: state.themePinned
+      }));
     } catch (e) { /* 隐私模式忽略 */ }
   }
   function loadPrefs() {
@@ -158,7 +160,54 @@
     });
     renderLegend();
     requestDraw();
-    if (persist) savePrefs();
+    if (persist) { state.themePinned = true; savePrefs(); }
+    syncURL();
+  }
+
+  // 深链接：?theme=paper&tab=climate&p=四川省&river=长江&mountain=秦岭
+  function syncURL() {
+    if (!window.history || !history.replaceState) return;
+    const q = new URLSearchParams();
+    q.set('theme', state.theme);
+    if (state.tab && state.tab !== 'explore') q.set('tab', state.tab);
+    if (state.selected) q.set('p', state.selected);
+    if (state.selectedRiver) q.set('river', state.selectedRiver);
+    if (state.selectedMountain) q.set('mountain', state.selectedMountain);
+    const url = location.pathname + '?' + q.toString() + location.hash;
+    try { history.replaceState(null, '', url); } catch (e) { /* file:// 下可能被拒 */ }
+  }
+
+  function readURL(search) {
+    let q;
+    try { q = new URLSearchParams(search == null ? location.search : search); } catch (e) { return; }
+    const theme = q.get('theme');
+    if (theme && CANVAS[theme]) { applyTheme(theme, false); state.themePinned = true; }
+    const tab = q.get('tab');
+    if (tab && TAB_PRESET[tab]) setTab(tab);
+    const p = q.get('p');
+    if (p && PROV_BY_NAME[p]) selectProvince(p);
+    const river = q.get('river');
+    if (river) {
+      const r = C.rivers.find((x) => x.name === river);
+      if (r) {
+        setTab('water');
+        state.selectedRiver = r.name; state.selected = null; state.selectedMountain = null;
+        renderPanel(); requestDraw();
+        const mid = r.path[Math.floor(r.path.length / 2)];
+        focusCoords(mid[0], mid[1], 2.1, 0);
+      }
+    }
+    const mtn = q.get('mountain');
+    if (mtn) {
+      const m = C.mountains.find((x) => x.name === mtn);
+      if (m) {
+        setTab('landform');
+        state.selectedMountain = m.name; state.selected = null; state.selectedRiver = null;
+        renderPanel(); requestDraw();
+        focusCoords(m.coord[0], m.coord[1], 2.4, 0);
+      }
+    }
+    syncURL();
   }
   /* ------------------------------------------------------------
      Albers 等积圆锥投影（标准纬线 25°N / 47°N）
@@ -236,7 +285,12 @@
      Canvas 基础
      ------------------------------------------------------------ */
   const canvas = $('#map');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d');
+  const ctxMain = ctx;
+  // 静态层离屏缓存：鼠标在省份间移动时只贴图 + 叠高亮，不重画 34 个省和全部标签
+  const staticCanvas = document.createElement('canvas');
+  const ctxStatic = staticCanvas.getContext('2d');
+  let cachedKey = '';
   const pickCanvas = document.createElement('canvas');
   const pickCtx = pickCanvas.getContext('2d', { willReadFrequently: true });
   const tip = $('#tooltip');
@@ -261,7 +315,9 @@
     W = Math.max(1, r.width); H = Math.max(1, r.height);
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    staticCanvas.width = canvas.width; staticCanvas.height = canvas.height;
     pickCanvas.width = canvas.width; pickCanvas.height = canvas.height;
+    cachedKey = '';
     computeBase();
     pickDirty = true;
     requestDraw();
@@ -326,8 +382,7 @@
   /* ------------------------------------------------------------
      主绘制
      ------------------------------------------------------------ */
-  function draw() {
-    dirty = false;
+  function paintScene() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
@@ -381,6 +436,60 @@
     drawInset();
     drawVignette();
     drawScale();
+  }
+
+  // 场景签名：只有它变化才需要重画静态层（省份悬浮 state.hover 故意不在其中）
+  function sceneKey() {
+    return [
+      W, H, DPR, state.view.k.toFixed(5), state.view.tx.toFixed(2), state.view.ty.toFixed(2),
+      state.tab, state.theme, state.fill, JSON.stringify(state.layers),
+      state.dimOthers || '', state.highlightClimate || '', state.selected || '',
+      state.selectedRiver || '', state.selectedMountain || '',
+      state.hoverMountain || '', state.hoverRiver || '',
+      state.forceLabelsUntil > performance.now() ? 1 : 0,
+      state.quiz && state.quiz.active ? 1 : 0
+    ].join('|');
+  }
+
+  function draw() {
+    dirty = false;
+    // 入场扫光期间每帧都在变，直接全量画，不进缓存
+    if (state.reveal < 1) {
+      ctx = ctxMain;
+      paintScene();
+      return;
+    }
+    const key = sceneKey();
+    if (key !== cachedKey) {
+      const prev = ctx;
+      ctx = ctxStatic;
+      try {
+        paintScene();
+        cachedKey = key;
+      } finally {
+        ctx = prev;
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(staticCanvas, 0, 0);
+    drawHoverGlow();
+  }
+
+  // 悬浮高亮单独画在最上层，避免为了换一个省份把整张地图重绘
+  function drawHoverGlow() {
+    if (!state.hover || state.tab === 'quiz') return;
+    const s = shapeByName[state.hover];
+    if (!s) return;
+    applyWorld(ctx);
+    const k = baseS * state.view.k;
+    ctx.save();
+    ctx.fillStyle = hexA(TH.sel, 0.09);
+    ctx.fill(s.path, 'evenodd');
+    ctx.strokeStyle = hexA(TH.sel, 0.55);
+    ctx.lineWidth = 1.2 / k;
+    ctx.stroke(s.path);
+    ctx.restore();
   }
 
   function dimKey() { return 'region'; }
@@ -1066,6 +1175,18 @@
     zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.18 : 1 / 1.18, 0);
   }, { passive: false });
 
+  const aboutDlg = $('#about');
+  if (aboutDlg && aboutDlg.showModal) {
+    $('#aboutBtn').onclick = () => aboutDlg.showModal();
+    $('#aboutClose').onclick = () => aboutDlg.close();
+    aboutDlg.addEventListener('click', (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
+    aboutDlg.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); aboutDlg.close(); }
+    });
+  } else if (aboutDlg) {
+    $('#aboutBtn').hidden = true;
+  }
+
   $('#zoomIn').onclick = () => zoomAt(W / 2, H / 2, 1.4);
   $('#zoomOut').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.4);
   $('#reset').onclick = () => { resetView(); };
@@ -1123,6 +1244,7 @@
         state.selected = null;
         renderPanel();
         requestDraw();
+        syncURL();
         return;
       }
       if (ov.type === 'river') {
@@ -1132,6 +1254,7 @@
           state.selected = null;
           renderPanel();
           requestDraw();
+          syncURL();
           return;
         }
       }
@@ -1158,6 +1281,7 @@
     $('#emptyHint').classList.add('is-off');
     renderPanel();
     requestDraw();
+    syncURL();
     if (focus) focusProvince(name);
     if (!focus && window.innerWidth <= 900) {
       const el = document.querySelector('#panel');
@@ -1433,7 +1557,7 @@
     });
     const factQs = shuffle(C.facts).slice(0, 10).map((f) => {
       const options = shuffle([f.a, ...f.options]);
-      return { type: 'choice', prompt: f.q, answer: f.a, options, meta: f.tag };
+      return { type: 'choice', prompt: f.q, answer: f.a, options, meta: f.tag, why: f.why || '' };
     });
     if (mode === 'province') return clickQs;
     if (mode === 'capital') return capQs;
@@ -1539,7 +1663,7 @@
     q.picked = opt;
     if (ok) q.score++;
     q.answers[q.i] = { ok, q: cur, picked: opt };
-    q.feedback = ok ? '答对了。' : `正确答案是「${cur.answer}」。`;
+    q.feedback = (ok ? '答对了。' : `正确答案是「${cur.answer}」。`) + (cur.why ? ' ' + cur.why : '');
     if (btn) {
       btn.classList.add(ok ? 'ok' : 'bad');
       panel.querySelectorAll('[data-opt]').forEach((b) => {
@@ -1609,7 +1733,8 @@
       </div>
       ${wrong.length ? `<div class="rule"></div><h3>错题回顾</h3><div class="review">
         ${wrong.map((a) => `<div class="r-item"><b>${esc(a.q.type === 'click' ? a.q.name : a.q.prompt)}</b><br/>
-          ${a.q.type === 'click' ? '在地图上找它的位置' : '正确答案：' + esc(a.q.answer)}</div>`).join('')}
+          ${a.q.type === 'click' ? '在地图上找它的位置' : '正确答案：' + esc(a.q.answer)}
+          ${a.q.why ? `<small class="why">${esc(a.q.why)}</small>` : ''}</div>`).join('')}
       </div>` : '<div class="note-box">全对。可以试试「地图找省份」模式，把名称藏起来再来一轮。</div>'}
       <div class="quiz-mode" style="margin-top:6px">
         <button id="again">再玩一次</button>
@@ -1881,6 +2006,7 @@
     $('#rail').style.display = isNotes ? 'none' : '';
     if (isNotes) {
       $('#knowledge').scrollTop = 0;
+      syncURL();
       return;
     }
 
@@ -1997,7 +2123,7 @@
     if (e.key === 'Escape') {
       if (typing) { t.blur(); return; }
       state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
-      renderPanel(); requestDraw();
+      renderPanel(); requestDraw(); syncURL();
       return;
     }
     if (typing) return;   // 在搜索框里打 +、-、0 不该动地图
@@ -2039,6 +2165,9 @@
 
   resize();
 
+  // 先记下进站时的查询串：下面 syncURL 会重写地址栏，别把深链接参数冲掉
+  const bootSearch = location.search;
+
   // 恢复上次的主题与图层勾选
   const prefs = loadPrefs();
   if (prefs) {
@@ -2046,6 +2175,7 @@
       state.layersTouched = true;
       state.layers = { ...state.layers, ...prefs.layers };
     }
+    state.themePinned = !!prefs.themePinned;
     applyTheme(prefs.theme || 'night', false);
   } else {
     // 头一次打开：跟随系统的浅色/深色偏好，别一上来就压一片黑
@@ -2053,8 +2183,17 @@
     applyTheme(light ? 'paper' : 'night', false);
   }
 
+  // 系统在页面开着时切深浅色：只要用户没手动选过主题，就跟着变
+  if (window.matchMedia) {
+    const scheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const onScheme = (e) => { if (!state.themePinned) applyTheme(e.matches ? 'night' : 'paper', false); };
+    if (scheme.addEventListener) scheme.addEventListener('change', onScheme);
+    else if (scheme.addListener) scheme.addListener(onScheme);
+  }
+
   renderKnowledge();
   setTab('explore');
+  readURL(bootSearch);
   // 入场：先扫过一遍（减少动态效果时直接显示，不做扫光）
   if (reducedMotion()) state.reveal = 1;
   else setTimeout(() => { state.reveal = 0; requestDraw(); }, 30);
