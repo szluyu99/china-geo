@@ -153,6 +153,15 @@
       `<div class="cmp-cell is-b"><span class="cmp-n cmp-long">${esc(vb)}</span></div></div>`);
     const rvA = provRivers(pa.name), rvB = provRivers(pb.name);
     const mtA = provMountains(pa.name), mtB = provMountains(pb.name);
+    // 十年人口变化（2010 六普 → 2020 七普）：有增减也要能一眼看出方向
+    const deltaTxt = (pp) => {
+      const base = pp.pop2010;
+      if (!base) return '—';
+      const d = pp.pop - base, pct = (pp.pop / base - 1) * 100;
+      const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+      return `${sign}${fmt(Math.abs(d))} 万（${sign}${Math.abs(pct).toFixed(1)}%）`;
+    };
+    if (pa.pop2010 && pb.pop2010) textRow('人口变化 10 年', deltaTxt(pa), deltaTxt(pb));
     if (rvA !== '—' || rvB !== '—') textRow('主要河流', rvA, rvB);
     if (mtA !== '—' || mtB !== '—') textRow('主要山脉', mtA, mtB);
     const ca = CLIM[pa.climate], cb = CLIM[pb.climate];
@@ -251,6 +260,22 @@
     });
   }
 
+  // 2010 六普 → 2020 七普 的十年人口变化。POP2010 只覆盖 31 个省级行政区（不含港澳台），
+  // 所以 pop2010 缺失时返回「—」，不画对比条。
+  function popChange(p) {
+    const base = p.pop2010;
+    if (!base) return { label: '—', note: '缺 2010 数据', cls: 'is-flat', w: 0 };
+    const d = p.pop - base, pct = (p.pop / base - 1) * 100;
+    const cls = d > 0 ? 'is-up' : (d < 0 ? 'is-down' : 'is-flat');
+    const w = Math.min(50, Math.abs(pct) / 25 * 50);
+    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+    return {
+      label: `${sign}${fmt(Math.abs(d))} 万 · ${sign}${Math.abs(pct).toFixed(1)}%`,
+      note: `2010 年 ${fmt(base)} 万 → 2020 年 ${fmt(p.pop)} 万`,
+      cls, w: d === 0 ? 0 : Math.max(2, w)
+    };
+  }
+
   function renderProvince(name) {
     const p = PROV_BY_NAME[name];
     if (!p) return renderExplore();
@@ -287,6 +312,9 @@
         <div class="bar-row"><span class="lab"><span>人口密度</span><b>全国第 ${rk.densityRank}</b></span>
           <span class="bar-track"><span class="bar-fill" style="width:${clamp(rk.density / 4000 * 100, 1, 100)}%"></span></span>
           <span class="bar-note">${fmt(rk.density)} 人/km²</span></div>
+        <div class="bar-row is-delta"><span class="lab"><span>十年人口</span><b>${popChange(p).label}</b></span>
+          <span class="bar-track is-zero"><span class="bar-fill ${popChange(p).cls}" style="width:${popChange(p).w}%"></span></span>
+          <span class="bar-note">${popChange(p).note}</span></div>
       </div>
       <div class="chips">${p.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}
         <span class="chip is-accent">${esc(region.desc)}</span></div>

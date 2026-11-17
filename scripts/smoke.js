@@ -229,10 +229,18 @@ class CDP {
       const svg = document.querySelector('#panel .prov-svg');
       const path = svg && svg.querySelector('path');
       const bars = document.querySelectorAll('#panel .bar-row').length;
-      return { name: window.__DBG.state.selected, d: path ? path.getAttribute('d').length : 0, bars, box: svg ? Math.round(svg.getBoundingClientRect().width) : 0 };
+      const delta = document.querySelector('#panel .bar-row.is-delta .bar-fill');
+      const dLab = document.querySelector('#panel .bar-row.is-delta b');
+      return { name: window.__DBG.state.selected, d: path ? path.getAttribute('d').length : 0, bars, box: svg ? Math.round(svg.getBoundingClientRect().width) : 0,
+        dCls: delta ? delta.className : '', dW: delta ? Math.round(parseFloat(delta.style.width) * 10) / 10 : 0,
+        dTxt: dLab ? dLab.textContent : '', dNote: (document.querySelector('#panel .bar-row.is-delta .bar-note') || {}).textContent || '' };
     `);
     ok(outline.d > 200 && outline.box > 20, '省份详情没有画出轮廓缩略图', outline);
     ok(outline.bars >= 3, '省份详情缺少排名条', outline);
+    // 十年人口变化：四川 2010 8041.82 万 → 2020 8367 万，应显示 +4.0% 的绿色条
+    ok(/\d/.test(outline.dTxt), '省份详情缺少十年人口变化条', outline);
+    ok(/is-up|is-down/.test(outline.dCls) && outline.dW > 0, '十年人口变化条没有方向或宽度', outline);
+    ok(/2010|七普|六普/.test(outline.dNote), '十年人口变化条缺少口径说明：' + outline.dNote, outline);
 
     // 河流纵剖面：细节页里要有距离—海拔曲线和结论
     const river = await cdp.eval(`
@@ -476,7 +484,8 @@ class CDP {
       const out = { dbgK: __DBG.state.view.k, dbgSel2: __DBG.state.selected, dbgRect: (() => { const bb = document.querySelector('#map').getBoundingClientRect(); return [Math.round(bb.width), Math.round(bb.height)]; })(), dbgIso: __DBG.state.iso, dbgRiver: __DBG.state.selectedRiver, first, hasBtn, hintOn, open: dlg.open, rows: document.querySelectorAll('#cmp .cmp-row').length,
         names: [...document.querySelectorAll('#cmp .cmp-name')].map(e => e.textContent).join('/'),
         note: (document.querySelector('#cmp .cmp-note') || {}).textContent || '',
-        longRows: [...document.querySelectorAll('#cmp .cmp-long')].map(e => e.textContent) };
+        longRows: [...document.querySelectorAll('#cmp .cmp-long')].map(e => e.textContent),
+        labs: [...document.querySelectorAll('#cmp .cmp-lab')].map(e => e.textContent) };
       dlg.close();
       return out;
     `);
@@ -486,6 +495,8 @@ class CDP {
     // 倍数必须带方向：面积大的是四川，应说成「四川的面积是广东的 2.70 倍」
     ok(/四川省的面积是广东省的 2\.70 倍/.test(cmp.note), '省际对比的倍数方向反了：' + cmp.note, cmp);
     ok(cmp.longRows.length >= 2 && cmp.longRows.includes('长江'), '省际对比缺少河流/山脉行：' + cmp.longRows.join(','), cmp);
+    ok(cmp.labs.some((t) => /人口变化/.test(t)), '省际对比缺少十年人口变化行：' + cmp.labs.join(','), cmp);
+    ok(/\+2,171 万/.test(cmp.note + cmp.longRows.join(' ')), '省际对比的广东十年人口增量不对：' + cmp.note, cmp);
 
     // 等值线读图说明：切「年降水」后要出现 800 mm / 400 mm 的解读
     const isoNote = await cdp.eval(`

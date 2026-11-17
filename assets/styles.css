@@ -462,6 +462,14 @@ body::before {
 .bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, rgb(var(--gold-rgb) / 0.55), var(--gold)); transform-origin: left; animation: grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
 @keyframes grow { from { transform: scaleX(0); } }
 
+/* 十年人口变化：以 0 为中心的双向条（右增左减） */
+.bar-track.is-zero { position: relative; background: rgb(var(--ink-rgb) / 0.07); }
+.bar-track.is-zero::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: rgb(var(--ink-rgb) / 0.22); }
+.bar-row.is-delta .bar-fill { position: absolute; top: 0; height: 100%; }
+.bar-row.is-delta .bar-fill.is-up { left: 50%; background: linear-gradient(90deg, rgb(var(--jade-rgb) / 0.6), var(--jade)); }
+.bar-row.is-delta .bar-fill.is-down { right: 50%; background: linear-gradient(270deg, rgb(var(--coral-rgb) / 0.65), var(--coral)); }
+.bar-row.is-delta .bar-fill.is-flat { background: rgb(var(--ink-rgb) / 0.3); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   font-size: 10.5px; color: var(--ink-soft);

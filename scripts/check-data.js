@@ -193,11 +193,25 @@ if (!E || !E.data) {
   ok(Math.max(...ps.map((x) => x.lon)) - Math.min(...ps.map((x) => x.lon)) > 40, '降水站点经度跨度不足');
 }
 
+// 十年人口变化（2010 六普 → 2020 七普）：31 省应有基准值，合计要接近 13.33 亿
+const popBase = P.filter((p) => Number.isFinite(p.pop2010));
+ok(popBase.length === 31, `应有 31 个省带 2010 年人口，实际 ${popBase.length}（港澳台无六普数据，属正常）`);
+const baseSum = popBase.reduce((a, p) => a + p.pop2010, 0);
+ok(baseSum > 133000 && baseSum < 133500, `六普 31 省合计应约 13.33 亿（万），实际 ${baseSum.toFixed(2)}`);
+ok(P.filter((p) => p.name === '北京市').every((p) => Math.abs(p.pop2010 - 1961.24) < 0.01), '北京市六普人口应为 1961.24 万');
+// 有增减也要能算，且极值不能离谱（防止百分比写错放大几百倍）
+for (const p of popBase) {
+  const pct = (p.pop / p.pop2010 - 1) * 100;
+  ok(Number.isFinite(pct) && pct > -30 && pct < 40, `${p.name} 十年人口变化异常：${pct.toFixed(1)}%`);
+}
+const grow = popBase.filter((p) => p.pop > p.pop2010).length;
+ok(grow >= 15 && grow <= 25, `十年人口增长省份数异常：${grow}（31 省中）`);
+
 const kb = (fs.statSync(path.join(root, 'assets/geo.js')).size / 1024).toFixed(0);
 if (fails.length) {
   console.error(`✗ 数据体检失败（${fails.length} 项）`);
   for (const f of fails) console.error('  - ' + f);
   process.exit(1);
 }
-console.log(`✓ 数据体检通过：${P.length} 省 · 面积 ${areaSum.toFixed(0)} 万km² · 人口 ${popSum} 万 · ${facts.length} 道题 · ${(C.rivers || []).length} 条河 · ${(C.mountains || []).length} 座山 · geo ${kb}KB`);
+console.log(`✓ 数据体检通过：${P.length} 省 · 面积 ${areaSum.toFixed(0)} 万km² · 人口 ${popSum} 万 · 六普 ${baseSum.toFixed(0)} 万 · ${facts.length} 道题 · ${(C.rivers || []).length} 条河 · ${(C.mountains || []).length} 座山 · geo ${kb}KB`);
 if (warns.length) console.log(`  （提示 ${warns.length} 条：${warns.slice(0, 3).join('；')}${warns.length > 3 ? ' …' : ''}）`);
