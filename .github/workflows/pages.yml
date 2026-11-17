@@ -27,6 +27,9 @@ jobs:
       - name: Check data (34 provinces / totals / quiz answers)
         run: node scripts/check-data.js
 
+      - name: Verify src/ vs assets/app.js
+        run: node scripts/build-app.js --check
+
       - name: Build single-file page
         run: node scripts/build-single.js
 

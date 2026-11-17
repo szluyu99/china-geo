@@ -75,6 +75,44 @@ python3 -m http.server 8765
 - **省份详情带轮廓与排名**：点开一个省，面板上除了面积 / 人口，还有一张按真实经纬度投影的等比例缩略轮廓（正北朝上），以及面积、人口、人口密度三条排名条，标出「全国第 N · 本区第 M/N」和占比。
 - **A4 打印**：地图左下角 `⎙` 按钮调起打印；打印时会自动隐藏侧栏与按钮、把地图排成 110 mm 高、面板转成白底，停在「速记」页则直接印成两栏讲义（约 3 页 A4）。
 
+## 目录结构
+
+```
+index.html            页面骨架（顶栏 / 三栏 / 速记页 / 两个 dialog）
+assets/
+  styles.css          界面样式 + 三套主题变量 + 打印样式
+  content.js          数据：34 省、河流、山脉、城市、作物、站点、题目、速记卡
+  geo.js              省界 GeoJSON（DataV，构建脚本转制）
+  elev.js             0.25° 高程网格（ETOPO1 采样，构建脚本生成）
+  app.js              应用逻辑 ← 由 src/ 拼接生成，不要直接改
+src/                  应用逻辑分片（按文件名排序拼接，共享同一个 IIFE 作用域）
+  00-core.js          常量、状态、通用小工具
+  10-palette.js       三套主题的画布调色板
+  20-projection.js    Albers 投影（含反解）与高程网格读取
+  30-geo.js           GeoJSON → Path2D、地形晕渲纹理
+  40-canvas.js        画布尺寸、静态层、颜色工具
+  50-draw.js          主绘制流程与动态层
+  60-labels.js        标签
+  70-isofield.js      等温线 / 年降水量线（插值、追踪、标注）
+  80-hit-inset.js     命中测试与南海诸岛附图
+  90-view.js          视图控制与交互（缩放、拖动、点击、键盘、触屏）
+  95-panel.js         右侧面板（省份、河流、山脉、气候、农业、概览、省际对比）
+  96-quiz.js          闯关与错题本
+  99-notes-init.js    速记页、四张示意图、启动流程
+scripts/
+  build-app.js        src/ → assets/app.js（可 --check）
+  build-geo.js        DataV GeoJSON → assets/geo.js
+  build-elev.js       OpenTopoData ETOPO1 → assets/elev.js
+  build-single.js     把 CSS/JS 内联进 dist/china-geo.html
+  check-data.js       数据体检
+  smoke.js            真实 Chrome 冒烟测试
+```
+
+**为什么要多一层 `src/`**：整个应用是**一个 IIFE**，13 个分片共享同一作用域（`state` / `ctx` / `W` / `H` / `TH`…）。
+改成 ES module 需要给每个函数传上下文，回归风险远大于收益；而拼接是逐字节可复现的——
+只要不改 `src/` 里的字符，`assets/app.js` 就与上一版完全一致（`npm run check:app` 会校验）。
+要改应用逻辑就改 `src/` 里对应的分片，然后 `npm run build:app`。
+
 ## 开发与自检
 
 ```bash

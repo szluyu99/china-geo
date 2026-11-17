@@ -4,15 +4,22 @@
   "private": true,
   "description": "可交互的中国地理图谱：三级阶梯、大江大河、气候分区与 34 个省级行政区",
   "homepage": "https://szluyu99.github.io/china-geo/",
-  "repository": { "type": "git", "url": "https://github.com/szluyu99/china-geo.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/szluyu99/china-geo.git"
+  },
   "license": "MIT",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "node scripts/check-data.js",
     "build:single": "node scripts/build-single.js",
-    "build": "npm run check && npm run build:single",
-    "smoke": "node scripts/build-single.js && node scripts/smoke.js",
-    "verify": "npm run check && npm run smoke",
-    "serve": "python3 -m http.server 8766"
+    "build": "npm run check && npm run build:app && npm run build:single",
+    "smoke": "npm run build:app && node scripts/smoke.js",
+    "verify": "npm run check && npm run check:app && npm run smoke",
+    "serve": "python3 -m http.server 8766",
+    "build:app": "node scripts/build-app.js",
+    "check:app": "node scripts/build-app.js --check"
   }
 }

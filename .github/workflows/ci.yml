@@ -23,6 +23,9 @@ jobs:
       - name: 数据体检（省份数 / 面积与人口合计 / 题目答案 / 图形完整性）
         run: node scripts/check-data.js
 
+      - name: 校验 src/ 与 assets/app.js 一致
+        run: node scripts/build-app.js --check
+
       - name: 打包单文件
         run: node scripts/build-single.js
 
