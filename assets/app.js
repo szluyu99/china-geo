@@ -2173,7 +2173,15 @@
     row('人口占全国', (pa.pop / 141178 * 100).toFixed(1) + '%', (pb.pop / 141178 * 100).toFixed(1) + '%', '', '', pa.pop, pb.pop);
     const ca = CLIM[pa.climate], cb = CLIM[pb.climate];
     const sa = STEP[pa.step], sb = STEP[pb.step];
-    const ratio = (x, y) => (x >= y ? (x / y).toFixed(2) + ' 倍' : (y / x).toFixed(2) + ' 倍');
+    // 倍数必须带方向：谁大就说谁是几倍，不能只报一个比值
+    const times = (big, small, bigName, smallName, unit) =>
+      `${bigName}的${unit}是${smallName}的 <b>${(big / small).toFixed(2)} 倍</b>`;
+    const areaTxt = pa.area >= pb.area
+      ? times(pa.area, pb.area, pa.name, pb.name, '面积')
+      : times(pb.area, pa.area, pb.name, pa.name, '面积');
+    const popTxt = pa.pop >= pb.pop
+      ? times(pa.pop, pb.pop, pa.name, pb.name, '人口')
+      : times(pb.pop, pa.pop, pb.name, pa.name, '人口');
     box.innerHTML = `
       <div class="cmp-head">
         <div class="cmp-side"><div class="cmp-mark">${esc(pa.short)}</div><div class="cmp-name">${esc(pa.name)}</div>${outlineSvg(pa)}</div>
@@ -2184,7 +2192,7 @@
       <div class="cmp-foot">
         <div class="cmp-line"><span>${esc(pa.name)}</span><b>${sa.name.replace('阶梯','')}</b><span>·</span><span>${esc(ca.name)}</span><span>·</span><span>${esc(pa.crop || '—')}</span></div>
         <div class="cmp-line"><span>${esc(pb.name)}</span><b>${sb.name.replace('阶梯','')}</b><span>·</span><span>${esc(cb.name)}</span><span>·</span><span>${esc(pb.crop || '—')}</span></div>
-        <div class="cmp-note">${esc(pa.name)}的面积是${esc(pb.name)}的 <b>${ratio(pa.area, pb.area)}</b>；${esc(pb.name)}的人口是${esc(pa.name)}的 <b>${ratio(pb.pop, pa.pop)}</b>。</div>
+        <div class="cmp-note">${areaTxt}；${popTxt}。</div>
       </div>
       <button class="cmp-close" data-cmp-close>关闭</button>`;
     CMP_PAIR = a + '|' + b;

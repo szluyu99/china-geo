@@ -430,6 +430,8 @@ class CDP {
     ok(cmp.hasBtn && cmp.hintOn, '省际对比入口或提示不正常', cmp);
     ok(cmp.open && cmp.rows >= 4, '省际对比弹窗没画出来', cmp);
     ok(/倍/.test(cmp.note), '省际对比缺少结论文案', cmp);
+    // 倍数必须带方向：面积大的是四川，应说成「四川的面积是广东的 2.70 倍」
+    ok(/四川省的面积是广东省的 2\.70 倍/.test(cmp.note), '省际对比的倍数方向反了：' + cmp.note, cmp);
 
     // 深链接
     await cdp.send('Page.navigate', { url: target.split('?')[0] + '?theme=day&tab=climate&p=' + encodeURIComponent('四川省') });
