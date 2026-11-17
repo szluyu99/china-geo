@@ -143,6 +143,9 @@
     if (state.selectedMountain) q.set('mountain', state.selectedMountain);
     if (state.iso) q.set('iso', state.iso);
     if (state.bubble) q.set('bubble', state.bubble);
+    if (state.railYear != null && (C.railHistory || []).length && state.railYear !== C.railHistory.length - 1) {
+      q.set('ry', String((C.railHistory[state.railYear] || {}).year || ''));
+    }
     if (CMP_PAIR) {
       const ab = CMP_PAIR.split('|');
       q.set('cmp', ab[0]); q.set('vs', ab[1] || '');
@@ -166,6 +169,11 @@
     if (iso === 'jan' || iso === 'jul' || iso === 'ppt') { state.iso = iso; if (!explicitTab && state.tab !== 'climate') setTab('climate'); }
     const bubble = q.get('bubble');
     if (bubble === 'pop' || bubble === 'area') { state.bubble = bubble; if (!explicitTab && state.tab !== 'explore') setTab('explore'); }
+    const ry = q.get('ry');
+    if (ry && C.railHistory && C.railHistory.length) {
+      const k0 = C.railHistory.findIndex((d) => String(d.year) === ry);
+      if (k0 >= 0) state.railYear = k0;
+    }
     const cmp = q.get('cmp'), vs = q.get('vs');
     if (cmp && vs && PROV_BY_NAME[cmp] && PROV_BY_NAME[vs]) openCompare(cmp, vs);
     else if (cmp && PROV_BY_NAME[cmp]) { state.compare = cmp; syncCompareHint(); }

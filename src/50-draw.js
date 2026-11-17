@@ -79,7 +79,7 @@
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
       state.hoverInfra || '', JSON.stringify(state.selectedInfra || ''),
-      state.iso || '', state.bubble || '',
+      state.iso || '', state.bubble || '', state.railYear == null ? 'max' : state.railYear,
       state.forceLabelsUntil > performance.now() ? 1 : 0,
       state.quiz && state.quiz.active ? 1 : 0
     ].join('|');

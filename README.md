@@ -49,11 +49,13 @@ python3 -m http.server 8765
 
 **交通与能源**：铁路与港口几乎是人口与地形的复写——东部密、西部疏，枢纽都是两条干线的十字（郑州、武汉、徐州、兰州），港口背后总有一条把货送到海边的铁路（连云港—陇海、秦皇岛—大秦、上海—长江）。能源版图正好相反：煤、油、气、水、风、光集中在中西部与北部，工业和人口在东南，于是有北煤南运、西电东送、西气东输三条方向相反的巨流。
 
+**高铁里程时间轴**：交通视图右侧面板里有一条 2008 → 2024 的累计曲线（11 个关键年份），拖下面的滑块换年份，读数是「某年底多少万公里 · 是 2008 年的多少倍 · 占铁路营业里程几成 · 这些年年均新增多少」，同时地图上没有通车的高铁线会变淡——一眼看出路网是怎么一年年长出来的。里程取公开年度数字并取整，不同资料口径略有差异。
+
 **第一次来访**会弹一个五步导览（三级阶梯 → 400 mm 线 → 季风 → 大江东去 → 找到你的省），每步自动切换视图与镜头；不想看可以点「跳过」，之后不再出现。顶栏「导览」可以随时重看。
 
 **分享指到具体位置**：地址栏会跟着当前状态变，比如
 `https://szluyu99.github.io/china-geo/?theme=paper&tab=climate&p=四川省`，
-或者 `?tab=water&river=长江`、`?tab=landform&mountain=秦岭`、`?tab=agri`。参数支持 `theme`（night / paper / day）、`tab`（explore / landform / climate / agri / water / quiz）、`p`、`river`、`mountain`、`iso`（jan / jul / ppt）、`bubble`（pop / area）、`cmp` + `vs`（两个省名，直接打开对比表），发给别人打开就是同一视图同一省份。
+或者 `?tab=water&river=长江`、`?tab=landform&mountain=秦岭`、`?tab=agri`。参数支持 `theme`（night / paper / day）、`tab`（explore / landform / climate / agri / water / transport / energy / notes / quiz）、`p`、`river`、`mountain`、`iso`（jan / jul / ppt）、`bubble`（pop / area）、`cmp` + `vs`（两个省名，直接打开对比表）、`ry`（高铁年份，如 `ry=2013`），发给别人打开就是同一视图同一省份。
 
 **图层勾选会被记住**：勾过之后切视图、用搜索跳转、甚至刷新页面都不会被重置回默认（只有闯关视图会临时隐藏省名，出来自动恢复）。
 

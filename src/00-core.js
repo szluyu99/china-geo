@@ -44,6 +44,7 @@
     selectedMountain: null,
     selectedInfra: null,   // 交通/能源：{kind, name}
     hoverInfra: null,
+    railYear: null,   // 高铁里程时间轴：null = 最新一年
     selectedRiver: null,
     highlightClimate: null,
     hi: null,

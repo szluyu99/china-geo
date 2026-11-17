@@ -223,6 +223,25 @@ for (const l of rails) {
     ok(l.path[i][0] !== l.path[i - 1][0] || l.path[i][1] !== l.path[i - 1][1], `铁路控制点重复：${l.name} 第 ${i} 段`);
   }
 }
+// 高铁里程时间轴：11 个关键年份，累计单调、占比合理
+const RH = C.railHistory || [];
+ok(RH.length >= 8, `高铁里程年份点偏少：${RH.length}（应 ≥8）`);
+let lastH = -1, lastT = -1;
+for (const d of RH) {
+  ok(Number.isFinite(d.year) && d.year >= 2000 && d.year <= 2030, `里程年份异常：${d.year}`);
+  ok(Number.isFinite(d.hsr) && d.hsr > 0, `高铁里程异常：${d.year} ${d.hsr}`);
+  ok(Number.isFinite(d.total) && d.total > 0, `铁路总里程异常：${d.year} ${d.total}`);
+  ok(d.hsr < d.total, `高铁里程不应大于铁路总里程：${d.year} ${d.hsr}/${d.total}`);
+  ok(d.hsr > lastH && d.total > lastT, `里程应逐年增长：${d.year}`);
+  ok(typeof d.note === 'string' && d.note.length >= 4, `里程缺说明：${d.year}`);
+  lastH = d.hsr; lastT = d.total;
+}
+const hsdLines = rails.filter((l) => l.kind === 'hsd');
+ok(hsdLines.length >= 8, `高铁干线偏少：${hsdLines.length}`);
+for (const l of hsdLines) {
+  ok(Number.isInteger(l.open) && l.open >= 2008 && l.open <= 2026, `高铁缺通车年份：${l.name}（${l.open}）`);
+}
+ok(RH[RH.length - 1].hsr / RH[0].hsr > 20, '高铁里程 2008→末年的增长倍数偏小，量级可能不对');
 const hubs = C.railHubs || [];
 ok(hubs.length >= 8, `铁路枢纽偏少：${hubs.length}`);
 const ports = C.ports || [];

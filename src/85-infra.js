@@ -18,6 +18,14 @@
   }
 
   /* 图层是否可见：tab 决定「这张图画什么」，layer 决定「画不画」 */
+  // 时间轴：当前选中的年份（默认最新一年）
+  function railOpenYear() {
+    const H = C.railHistory || [];
+    if (!H.length) return 9999;
+    const i = state.railYear == null ? H.length - 1 : Math.max(0, Math.min(H.length - 1, state.railYear));
+    return H[i].year;
+  }
+
   function infraOn(kind) {
     if (state.tab === 'transport') return kind === 'rail' ? !!state.layers.rail
       : kind === 'ports' ? !!state.layers.ports : !!state.layers.hubs;
@@ -56,7 +64,9 @@
     for (const l of RAIL_LINES) {
       const kind = RAIL_KIND[l.kind] || { color: '#999' };
       const w = railWidth(l);
-      const a = infraDim('railkind', l.kind) * (l.kind === 'hsd' ? 0.96 : 0.72);
+      // 还没通车的线画得很淡：时间轴拖到早年能看出路网在长
+      const a = infraDim('railkind', l.kind) * (l.kind === 'hsd' ? 0.96 : 0.72)
+        * (l.open && l.open > railOpenYear() ? 0.16 : 1);
       ctx.beginPath();
       l.path.forEach(([lon, lat], i) => {
         const [x, y] = albers(lon, lat);

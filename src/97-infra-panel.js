@@ -53,6 +53,89 @@
     </div>`;
   }
 
+  // 高铁里程时间轴：11 个关键年份的累计曲线 + 年份滑块
+  const RTW = 320, RTHT = 96, RTPL = 26, RTPR = 8, RTPT = 12, RTPB = 18;
+  const RT_X = (i, n) => RTPL + i * (RTW - RTPL - RTPR) / Math.max(1, n - 1);
+  const RT_Y = (v, max) => RTHT - RTPB - (v / max) * (RTHT - RTPT - RTPB);
+  const rtIdx = () => {
+    const H = C.railHistory || [];
+    if (!H.length) return 0;
+    return state.railYear == null ? H.length - 1 : Math.max(0, Math.min(H.length - 1, state.railYear));
+  };
+
+  function railTimeHTML() {
+    const H = C.railHistory || [];
+    if (H.length < 3) return '';
+    const cur = rtIdx();
+    const max = Math.max(H[H.length - 1].hsr, 0.01);
+    const n = H.length;
+    const pts = H.map((d, i) => [RT_X(i, n), RT_Y(d.hsr, max)]);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${pts[n - 1][0].toFixed(1)},${RTHT - RTPB} L${pts[0][0].toFixed(1)},${RTHT - RTPB} Z`;
+    const dots = pts.map((p, i) => {
+      const on = i <= cur;
+      return `<circle class="rt-dot${i === cur ? ' is-on' : ''}${on ? ' is-past' : ''}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${i === cur ? 3.4 : 2.2}" data-ry="${i}"/>`;
+    }).join('');
+    const years = [0, Math.round((n - 1) / 3), Math.round((n - 1) * 2 / 3), n - 1]
+      .filter((v, i, a) => a.indexOf(v) === i);
+    const xl = years.map((i) => `<text class="rt-t" x="${RT_X(i, n).toFixed(1)}" y="${RTHT - 6}" text-anchor="middle">${H[i].year}</text>`).join('');
+    const d = H[cur];
+    const first = H[0];
+    const span = d.year - first.year;
+    const per = span > 0 ? (d.hsr - first.hsr) / span : 0;
+    const ratio = first.hsr > 0 ? d.hsr / first.hsr : 0;
+    return `<div class="rt" id="railTime">
+      <h3>高铁里程，2008 → 2024</h3>
+      <div class="rt-sub">营业里程（万公里，年底数），按关键年份取点</div>
+      <svg class="rt-chart" viewBox="0 0 ${RTW} ${RTHT}" width="100%" height="${RTHT}" role="img"
+        aria-label="全国高铁营业里程从 2008 年的 ${first.hsr} 万公里增长到 ${H[n - 1].hsr} 万公里">
+        <path class="rt-area" d="${area}"></path>
+        <path class="rt-line" d="${line}"></path>
+        <line class="rt-axis" x1="${RTPL}" y1="${RTHT - RTPB}" x2="${RTW - RTPR}" y2="${RTHT - RTPB}"></line>
+        ${dots}${xl}
+      </svg>
+      <input class="rt-slider" type="range" min="0" max="${n - 1}" step="1" value="${cur}"
+        style="--rt-p:${(cur / Math.max(1, n - 1) * 100).toFixed(1)}%"
+        aria-label="选择年份看高铁里程与当时已通车的线路" />
+      <div class="rt-read">${rtReadHTML(cur)}</div>
+      <div class="rt-note">把滑块往左拖：地图上没有通车的高铁线会变淡，能直接看出路网一年年长出来。</div>
+    </div>`;
+  }
+
+  function rtReadHTML(i) {
+    const H = C.railHistory || [];
+    if (!H.length) return '';
+    const d = H[Math.max(0, Math.min(H.length - 1, i))];
+    const first = H[0];
+    const span = d.year - first.year;
+    const per = span > 0 ? (d.hsr - first.hsr) / span : 0;
+    const ratio = first.hsr > 0 ? d.hsr / first.hsr : 0;
+    return `<b>${d.year} 年底</b> ${d.hsr.toFixed(2)} 万公里 · 是 2008 年的 ${ratio.toFixed(0)} 倍 · 占铁路营业里程 ${(d.hsr / d.total * 100).toFixed(1)}%`
+      + (span > 0 ? `<span class="rt-per">2008–${d.year} 年均新增 ${per.toFixed(2)} 万公里</span>` : '')
+      + `<span class="rt-note-line">${esc(d.note)}</span>`;
+  }
+
+  function rtSync() {
+    const H = C.railHistory || [];
+    if (!H.length) return;
+    const cur = rtIdx();
+    const box = document.getElementById('railTime');
+    if (!box) return;
+    const rd = box.querySelector('.rt-read');
+    if (rd) rd.innerHTML = rtReadHTML(cur);
+    box.querySelectorAll('.rt-dot').forEach((c) => {
+      const i = +c.dataset.ry;
+      c.classList.toggle('is-on', i === cur);
+      c.classList.toggle('is-past', i <= cur);
+    });
+    const sl = box.querySelector('.rt-slider');
+    if (sl) {
+      if (+sl.value !== cur) sl.value = cur;
+      const pct = (cur / Math.max(1, H.length - 1)) * 100;
+      sl.style.setProperty('--rt-p', pct.toFixed(1) + '%');
+    }
+  }
+
   function renderTransport() {
     const k = baseS * state.view.k;
     const hsd = RAIL_LINES.filter((l) => l.kind === 'hsd').length;
@@ -67,6 +150,7 @@
         <div class="stat"><span class="k">本图铁路</span><span class="v">${RAIL_LINES.length}<small>条（高铁 ${hsd} · 普速 ${conv}）</small></span></div>
         <div class="stat"><span class="k">沿海大港</span><span class="v">${PORTS.length}<small>个</small></span></div>
       </div>
+      ${railTimeHTML()}
       <div class="rule"></div>
       <h3>三条规律</h3>
       <div class="note-box">
@@ -102,6 +186,13 @@
       ${infraDetailHTML()}
       <div class="note-box"><b>为什么港口都在北边？</b>不是的——大连、天津、青岛在渤海与黄海，上海往南还有宁波舟山、厦门、深圳、湛江。港口的位置取决于「背后有没有大河或铁路把货送过来」，而不只是纬度。</div>
       <p class="panel-foot">铁路里程与港口吞吐量为公开的量级说法；本图只画走向与位置，不作为运营依据。</p>`;
+
+    const rtsl = panel.querySelector('.rt-slider');
+    if (rtsl) rtsl.oninput = () => {
+      state.railYear = +rtsl.value;
+      rtSync();
+      requestDraw();
+    };
 
     panel.querySelectorAll('[data-rail]').forEach((b) => {
       b.onclick = () => {

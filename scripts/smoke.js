@@ -630,6 +630,47 @@ class CDP {
     ok(tp.sel && tp.sel.kind === 'rail' && /经过/.test(tp.note), '点铁路没有出详情', tp);
     ok(tp.ov === 0 && tp.labels > 30 && tp.ovX === 0, '交通视图标签或布局有问题', tp);
 
+    // 高铁里程时间轴：曲线、年份滑块、以及「早年线路还没通车」的淡出效果
+    const tl = await cdp.eval(`
+      const box = document.querySelector('#railTime');
+      const rd0 = box ? box.querySelector('.rt-read').textContent : '';
+      const dots = document.querySelectorAll('.rt-dot').length;
+      const sl = box ? box.querySelector('.rt-slider') : null;
+      if (!sl) return { ok: false, dots: dots };
+      const maxV = +sl.max;
+      sl.value = maxV; sl.oninput();
+      const ryMax = window.__DBG.state.railYear;
+      sl.value = 0; sl.oninput();
+      return { ok: true, dots: dots, maxV: maxV, ryMax: ryMax,
+               ry0: window.__DBG.state.railYear, read0: rd0, pct: sl.style.getPropertyValue('--rt-p') };
+    `);
+    ok(tl.ok && tl.dots >= 8, '高铁里程时间轴没有画出来', tl);
+    ok(tl.read0 && /万公里/.test(tl.read0), '高铁里程时间轴读数不对', tl.read0);
+    const early = await cdp.eval(`
+      return (async () => {
+        const sl = document.querySelector('#railTime .rt-slider');
+        sl.value = 0; sl.oninput();
+        await new Promise((r) => setTimeout(r, 850));
+        const c = document.getElementById('map'), x = c.getContext('2d');
+        const d = x.getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] > 190 && d[i + 1] > 140 && d[i + 1] < 205 && d[i + 2] < 130) n++;
+        }
+        sl.value = sl.max; sl.oninput();
+        await new Promise((r) => setTimeout(r, 850));
+        const d2 = x.getImageData(0, 0, c.width, c.height).data;
+        let m = 0;
+        for (let i = 0; i < d2.length; i += 4) {
+          if (d2[i] > 190 && d2[i + 1] > 140 && d2[i + 1] < 205 && d2[i + 2] < 130) m++;
+        }
+        return { early: n, late: m, ry0: 0, ryMax: window.__DBG.state.railYear,
+                 readMax: document.querySelector('#railTime .rt-read').textContent };
+      })()
+    `);
+    ok(early.late > early.early + 800, '时间轴没有改变地图上的高铁线（早年应该更淡）', early);
+    ok(early.ryMax !== 0, '时间轴滑块没有写回 state', early);
+
     // 能源视图
     const en = await cdp.eval(`
       document.querySelector('#tabs .tab[data-tab="energy"]').click();
@@ -671,5 +712,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/九视图/交通/能源/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接/口径');
+  console.log('✓ 冒烟测试通过：画布/标签/九视图/交通/能源/时间轴/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接/口径');
 })();
