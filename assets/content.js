@@ -467,5 +467,49 @@ window.CN_CONTENT = (function () {
     jul: [10, 14, 18, 22, 26, 30]
   };
 
-  return { regions, steps, climates, provinces, rivers, mountains, lines, profile, landforms, extremes, neighbors, facts, notes, cities, crops, agriLine, stations, isoLevels };
+  // 年降水量（毫米，常年平均），用于画 200 / 400 / 800 / 1600 mm 线
+  const precipStations = [
+    { name: '漠河', lon: 122.37, lat: 53.47, mm: 400 },
+    { name: '哈尔滨', lon: 126.53, lat: 45.80, mm: 520 },
+    { name: '长春', lon: 125.32, lat: 43.82, mm: 590 },
+    { name: '沈阳', lon: 123.43, lat: 41.80, mm: 700 },
+    { name: '二连浩特', lon: 111.98, lat: 43.65, mm: 140 },
+    { name: '呼和浩特', lon: 111.75, lat: 40.84, mm: 400 },
+    { name: '北京', lon: 116.41, lat: 39.90, mm: 570 },
+    { name: '天津', lon: 117.20, lat: 39.13, mm: 550 },
+    { name: '石家庄', lon: 114.51, lat: 38.04, mm: 520 },
+    { name: '太原', lon: 112.55, lat: 37.87, mm: 400 },
+    { name: '银川', lon: 106.27, lat: 38.47, mm: 190 },
+    { name: '兰州', lon: 103.83, lat: 36.06, mm: 320 },
+    { name: '西宁', lon: 101.78, lat: 36.62, mm: 380 },
+    { name: '济南', lon: 117.00, lat: 36.65, mm: 660 },
+    { name: '郑州', lon: 113.62, lat: 34.75, mm: 630 },
+    { name: '西安', lon: 108.94, lat: 34.34, mm: 580 },
+    { name: '敦煌', lon: 94.66, lat: 40.14, mm: 40 },
+    { name: '格尔木', lon: 94.90, lat: 36.40, mm: 40 },
+    { name: '乌鲁木齐', lon: 87.62, lat: 43.79, mm: 280 },
+    { name: '喀什', lon: 75.99, lat: 39.47, mm: 65 },
+    { name: '和田', lon: 79.92, lat: 37.11, mm: 35 },
+    { name: '拉萨', lon: 91.13, lat: 29.65, mm: 440 },
+    { name: '成都', lon: 104.07, lat: 30.57, mm: 900 },
+    { name: '重庆', lon: 106.55, lat: 29.56, mm: 1100 },
+    { name: '贵阳', lon: 106.71, lat: 26.58, mm: 1100 },
+    { name: '昆明', lon: 102.83, lat: 24.88, mm: 1000 },
+    { name: '南宁', lon: 108.37, lat: 22.82, mm: 1300 },
+    { name: '广州', lon: 113.26, lat: 23.13, mm: 1800 },
+    { name: '香港', lon: 114.17, lat: 22.32, mm: 2400 },
+    { name: '海口', lon: 110.20, lat: 20.04, mm: 1700 },
+    { name: '三亚', lon: 109.51, lat: 18.25, mm: 1400 },
+    { name: '福州', lon: 119.30, lat: 26.08, mm: 1400 },
+    { name: '南昌', lon: 115.89, lat: 28.68, mm: 1600 },
+    { name: '长沙', lon: 112.94, lat: 28.23, mm: 1400 },
+    { name: '武汉', lon: 114.30, lat: 30.59, mm: 1300 },
+    { name: '合肥', lon: 117.28, lat: 31.86, mm: 1000 },
+    { name: '南京', lon: 118.80, lat: 32.06, mm: 1100 },
+    { name: '杭州', lon: 120.16, lat: 30.27, mm: 1400 },
+    { name: '上海', lon: 121.47, lat: 31.23, mm: 1200 }
+  ];
+  const precipLevels = [200, 400, 800, 1600];
+
+  return { regions, steps, climates, provinces, rivers, mountains, lines, profile, landforms, extremes, neighbors, facts, notes, cities, crops, agriLine, stations, isoLevels, precipStations, precipLevels };
 })();

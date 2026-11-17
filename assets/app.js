@@ -36,7 +36,8 @@
     layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false },
     selected: null,
     hover: null,
-    iso: null,        // 'jan' | 'jul' | null 等温线
+    iso: null,        // 'jan' | 'jul' | 'ppt' | null 等温线 / 等降水量线
+    compare: null,    // 对比模式：先记住第一个省，再点第二个省
     bubble: null,     // 'pop' | 'area' | null 气泡图
     hoverMountain: null,
     hoverRiver: null,
@@ -74,7 +75,7 @@
     agri: 'rgba(120,190,170,0.62)',
     riverCasing: 'rgba(4,10,14,0.55)', riverActive: 'rgba(255,255,255,0.55)',
     monsoonWarm: 'rgba(226,178,102,0.9)', monsoonCold: 'rgba(120,190,224,0.9)',
-    isoCold: 'rgba(120,172,214,0.92)', isoWarm: 'rgba(226,150,96,0.92)', isoZero: 'rgba(232,196,120,0.95)', isoText: 'rgba(238,242,246,0.95)', bubble: '#5fbfa3',
+    isoCold: 'rgba(120,172,214,0.92)', isoWarm: 'rgba(226,150,96,0.92)', isoZero: 'rgba(232,196,120,0.95)', isoWet: 'rgba(110,196,186,0.9)', isoText: 'rgba(238,242,246,0.95)', bubble: '#5fbfa3',
     mtn: 'rgba(232,206,150,0.82)', mtnActive: '#f6d79b', mtnShadow: 'rgba(0,0,0,0.6)',
     sel: 'rgba(255,214,140,0.95)', selGlow: 'rgba(255,196,110,0.55)',
     capDot: 'rgba(255,255,255,0.9)', capDotEdge: 'rgba(12,20,26,0.9)', capText: 'rgba(233,240,244,0.9)',
@@ -105,7 +106,7 @@
     agri: 'rgba(46,132,112,0.62)',
     riverCasing: 'rgba(255,255,255,0.62)', riverActive: 'rgba(20,60,90,0.45)',
     monsoonWarm: 'rgba(168,116,34,0.75)', monsoonCold: 'rgba(40,108,142,0.75)',
-    isoCold: 'rgba(42,104,150,0.88)', isoWarm: 'rgba(184,88,44,0.88)', isoZero: 'rgba(158,104,20,0.95)', isoText: 'rgba(28,36,44,0.95)', bubble: '#1e7866',
+    isoCold: 'rgba(42,104,150,0.88)', isoWarm: 'rgba(184,88,44,0.88)', isoZero: 'rgba(158,104,20,0.95)', isoWet: 'rgba(22,116,110,0.9)', isoText: 'rgba(28,36,44,0.95)', bubble: '#1e7866',
     mtn: 'rgba(150,112,52,0.9)', mtnActive: '#8a5f14', mtnShadow: 'rgba(80,60,30,0.25)',
     sel: 'rgba(150,102,20,0.95)', selGlow: 'rgba(196,146,52,0.42)',
     capDot: 'rgba(255,255,255,0.95)', capDotEdge: 'rgba(64,52,34,0.85)', capText: 'rgba(46,54,60,0.92)',
@@ -134,7 +135,7 @@
     agri: 'rgba(34,120,104,0.62)',
     riverCasing: 'rgba(255,255,255,0.7)', riverActive: 'rgba(16,58,88,0.45)',
     monsoonWarm: 'rgba(150,104,30,0.78)', monsoonCold: 'rgba(32,98,132,0.78)',
-    isoCold: 'rgba(36,96,140,0.9)', isoWarm: 'rgba(176,80,38,0.9)', isoZero: 'rgba(146,96,18,0.95)', isoText: 'rgba(24,32,40,0.95)', bubble: '#1a7060',
+    isoCold: 'rgba(36,96,140,0.9)', isoWarm: 'rgba(176,80,38,0.9)', isoZero: 'rgba(146,96,18,0.95)', isoWet: 'rgba(18,106,100,0.9)', isoText: 'rgba(24,32,40,0.95)', bubble: '#1a7060',
     insetBg: 'rgba(255,255,255,0.9)', insetLand: 'rgba(118,124,130,0.42)',
     halo: 'rgba(250,252,254,0.9)', vignette: 'rgba(90,110,130,0.14)',
     profGrid: 'rgba(40,60,80,0.10)', profAxis: 'rgba(60,80,100,0.75)',
@@ -204,6 +205,10 @@
     if (state.selectedMountain) q.set('mountain', state.selectedMountain);
     if (state.iso) q.set('iso', state.iso);
     if (state.bubble) q.set('bubble', state.bubble);
+    if (CMP_PAIR) {
+      const ab = CMP_PAIR.split('|');
+      q.set('cmp', ab[0]); q.set('vs', ab[1] || '');
+    } else if (state.compare) q.set('cmp', state.compare);
     const url = location.pathname + '?' + q.toString() + location.hash;
     try { history.replaceState(null, '', url); } catch (e) { /* file:// 下可能被拒 */ }
   }
@@ -220,9 +225,12 @@
     // 只有链接里没写 tab 时，才让叠加层把视图带过去，避免 iso/bubble 互相抢
     const explicitTab = q.get('tab');
     const iso = q.get('iso');
-    if (iso === 'jan' || iso === 'jul') { state.iso = iso; if (!explicitTab && state.tab !== 'climate') setTab('climate'); }
+    if (iso === 'jan' || iso === 'jul' || iso === 'ppt') { state.iso = iso; if (!explicitTab && state.tab !== 'climate') setTab('climate'); }
     const bubble = q.get('bubble');
     if (bubble === 'pop' || bubble === 'area') { state.bubble = bubble; if (!explicitTab && state.tab !== 'explore') setTab('explore'); }
+    const cmp = q.get('cmp'), vs = q.get('vs');
+    if (cmp && vs && PROV_BY_NAME[cmp] && PROV_BY_NAME[vs]) openCompare(cmp, vs);
+    else if (cmp && PROV_BY_NAME[cmp]) { state.compare = cmp; syncCompareHint(); }
     const river = q.get('river');
     if (river) {
       const r = C.rivers.find((x) => x.name === river);
@@ -1080,13 +1088,19 @@
   /* ------------------------------------------------------------
      等温线：站点气温 → 海拔订正 → 反距离插值 → 等值线追踪
      ------------------------------------------------------------ */
+  let CMP_PAIR = null;   // 'A|B' 形式的对比对，只用于深链接
   const ISO_CACHE = {};
   const FIELD = { lon0: 72, lat0: 16, step: 0.5, nx: 129, ny: 77 };
   let isoLabels = [];
 
+  const isPrecip = (kind) => kind === 'ppt';
+
   function isoField(month) {
     if (ISO_CACHE[month]) return ISO_CACHE[month];
-    const st = (C.stations || []).map((s) => {
+    const ppt = isPrecip(month);
+    // 气温先按海拔还原到海平面（再插值、再减回）；降水不做高程订正（站点稀疏，订正反而放大噪声）
+    const st = (ppt ? (C.precipStations || []) : (C.stations || [])).map((s) => {
+      if (ppt) return { lon: s.lon, lat: s.lat, t: s.mm };
       const z = elevAt(s.lon, s.lat);
       return { lon: s.lon, lat: s.lat, t: (month === 'jan' ? s.jan : s.jul) + 0.0065 * (z || 0) };
     });
@@ -1105,6 +1119,7 @@
           const w = 1 / (d2 * Math.sqrt(d2));
           wsum += w; vsum += w * s.t;
         }
+        if (ppt) { vals[j * nx + i] = vsum / wsum; continue; }
         const z = elevAt(lon, lat);
         vals[j * nx + i] = vsum / wsum - 0.0065 * (z === null ? 0 : z);
       }
@@ -1157,7 +1172,7 @@
     const ck = 'lines:' + month;
     if (ISO_CACHE[ck]) return ISO_CACHE[ck];
     const f = isoField(month);
-    const levels = (C.isoLevels && C.isoLevels[month]) || [];
+    const levels = isPrecip(month) ? (C.precipLevels || []) : ((C.isoLevels && C.isoLevels[month]) || []);
     const { nx, ny, lon0, lat0, step, vals } = f;
     const at = (i, j) => vals[j * nx + i];
     const byLevel = levels.map(() => []);
@@ -1217,9 +1232,12 @@
     ctx.lineCap = 'round';
     for (const lvl of data) {
       if (!lvl.lines.length) continue;
-      ctx.strokeStyle = lvl.v === 0 ? TH.isoZero : lvl.v < 0 ? TH.isoCold : TH.isoWarm;
-      ctx.lineWidth = (lvl.v === 0 ? 1.9 : 1.15) / k;
-      ctx.globalAlpha = lvl.v === 0 ? 0.95 : 0.8;
+      const ppt = isPrecip(state.iso);
+      // 降水线里 400 mm（半湿润/半干旱分界）与 800 mm（湿润分界）最关键，画粗一点
+      const major = ppt ? (lvl.v === 400 || lvl.v === 800) : lvl.v === 0;
+      ctx.strokeStyle = ppt ? TH.isoWet : lvl.v === 0 ? TH.isoZero : lvl.v < 0 ? TH.isoCold : TH.isoWarm;
+      ctx.lineWidth = (major ? 1.9 : 1.15) / k;
+      ctx.globalAlpha = major ? 0.95 : 0.8;
       let best = null;
       for (const raw of lvl.lines) {
         const pts = smoothLine(raw);
@@ -1237,7 +1255,7 @@
           const [wx, wy] = albers(q[0], q[1]);
           return { x: sx(wx), y: sy(wy) };
         });
-        isoLabels.push({ v: lvl.v, zero: lvl.v === 0, cands, x: cands[0].x, y: cands[0].y });
+        isoLabels.push({ v: lvl.v, zero: major, cands, x: cands[0].x, y: cands[0].y });
       }
     }
     ctx.restore();
@@ -1259,16 +1277,17 @@
 
   function drawIsoLabels() {
     if (!state.iso || !isoLabels.length) return;
-    const fmt = (v) => (v < 0 ? '−' + Math.abs(v) : String(v)) + '℃';
+    const ppt = isPrecip(state.iso);
+    const fmt = (v) => (ppt ? String(v) + ' mm' : (v < 0 ? '−' + Math.abs(v) : String(v)) + '℃');
     for (const l of isoLabels) {
       const txt = fmt(l.v);
-      const w = (l.zero ? 30 : 26), h = 12;
+      const w = ppt ? 44 : (l.zero ? 30 : 26), h = 12;
       for (const c of (l.cands || [{ x: l.x, y: l.y }])) {
         const box = { x: c.x - w / 2, y: c.y - h / 2, w, h };
         if (!isoLabelFits(box)) continue;
         drawText(txt, c.x, c.y, {
           font: (l.zero ? '600 11px ' : '10px ') + FONT_SANS,
-          color: l.zero ? TH.isoZero : l.v < 0 ? TH.isoCold : TH.isoWarm,
+          color: ppt ? TH.isoWet : l.zero ? TH.isoZero : l.v < 0 ? TH.isoCold : TH.isoWarm,
           align: 'center', base: 'middle', halo: true
         });
         l.placed = true; l.box = box;
@@ -2019,6 +2038,7 @@
     }
     const name = tinyAt(clientX, clientY) || provinceAt(clientX, clientY);
     if (!name) {
+      if (state.compare) { state.compare = null; syncCompareHint(); requestDraw(); return; }
       if (state.selected || state.selectedRiver || state.selectedMountain) {
         state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
         renderPanel(); requestDraw();
@@ -2027,6 +2047,16 @@
     }
     if (state.tab === 'quiz' && state.quiz && state.quiz.active) {
       answerByProvince(name);
+      return;
+    }
+    // 对比模式：第二个省直接开对比表
+    if (state.compare && state.compare !== name && !state.quiz) {
+      const a = state.compare;
+      state.compare = null;
+      syncCompareHint();
+      state.selected = name;
+      renderPanel(); requestDraw(); syncURL();
+      openCompare(a, name);
       return;
     }
     selectProvince(name);
@@ -2098,6 +2128,72 @@
     const ox = (W - (x1 - x0) * s2) / 2, oy = (H - (y1 - y0) * s2) / 2;
     const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${(ox + (x - x0) * s2).toFixed(1)} ${(oy + (y - y0) * s2).toFixed(1)}`).join(' ') + ' Z';
     return `<svg class="prov-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><path d="${d}"/></svg>`;
+  }
+
+  /* ---------------- 省际对比 ---------------- */
+  function syncCompareHint() {
+    const el = $('#cmpHint');
+    if (!el) return;
+    if (state.compare) {
+      el.innerHTML = `对比模式：已选 <b>${esc(state.compare)}</b>，再点一个省 <button class="cmp-cancel" data-cmp-cancel>取消</button>`;
+      el.classList.add('is-on');
+      const b = el.querySelector('[data-cmp-cancel]');
+      if (b) b.onclick = () => { state.compare = null; syncCompareHint(); };
+    } else {
+      el.classList.remove('is-on');
+      el.innerHTML = '';
+    }
+  }
+
+  function startCompare(name) {
+    state.compare = name;
+    syncCompareHint();
+    showTip(window.innerWidth / 2, 96, '对比模式', [state.compare + ' → 再点一个省']);
+  }
+
+  function openCompare(a, b) {
+    const pa = PROV_BY_NAME[a], pb = PROV_BY_NAME[b];
+    const dlg = $('#cmp');
+    const box = $('#cmpBox');
+    if (!dlg || !box || !pa || !pb) return;
+    const ra = provinceRanks(pa), rb = provinceRanks(pb);
+    const rows = [];
+    const row = (label, va, vb, na, nb, barA, barB, fmt) => {
+      const mx = Math.max(barA || 0, barB || 0) || 1;
+      const cell = (v, n, w, cls) => `<span class="cmp-n">${n}</span><span class="cmp-v">${v}</span>` +
+        `<span class="cmp-bar"><span class="cmp-fill ${cls}" style="width:${clamp(w / mx * 100, 1.5, 100)}%"></span></span>`;
+      rows.push(`<div class="cmp-row"><div class="cmp-cell">${cell(va, na, barA, 'a')}</div>` +
+        `<div class="cmp-lab">${label}</div>` +
+        `<div class="cmp-cell is-b">${cell(vb, nb, barB, 'b')}</div></div>`);
+    };
+    row('面积', pa.area + ' 万 km²', pb.area + ' 万 km²', '全国第 ' + ra.area, '全国第 ' + rb.area, pa.area, pb.area);
+    row('常住人口', fmt(pa.pop) + ' 万', fmt(pb.pop) + ' 万', '全国第 ' + ra.pop, '全国第 ' + rb.pop, pa.pop, pb.pop);
+    row('人口密度', fmt(ra.density) + ' 人/km²', fmt(rb.density) + ' 人/km²', '全国第 ' + ra.densityRank, '全国第 ' + rb.densityRank, ra.density, rb.density);
+    row('面积占国土', (pa.area / 960 * 100).toFixed(2) + '%', (pb.area / 960 * 100).toFixed(2) + '%', '', '', pa.area, pb.area);
+    row('人口占全国', (pa.pop / 141178 * 100).toFixed(1) + '%', (pb.pop / 141178 * 100).toFixed(1) + '%', '', '', pa.pop, pb.pop);
+    const ca = CLIM[pa.climate], cb = CLIM[pb.climate];
+    const sa = STEP[pa.step], sb = STEP[pb.step];
+    const ratio = (x, y) => (x >= y ? (x / y).toFixed(2) + ' 倍' : (y / x).toFixed(2) + ' 倍');
+    box.innerHTML = `
+      <div class="cmp-head">
+        <div class="cmp-side"><div class="cmp-mark">${esc(pa.short)}</div><div class="cmp-name">${esc(pa.name)}</div>${outlineSvg(pa)}</div>
+        <div class="cmp-vs">对比</div>
+        <div class="cmp-side is-b"><div class="cmp-mark">${esc(pb.short)}</div><div class="cmp-name">${esc(pb.name)}</div>${outlineSvg(pb)}</div>
+      </div>
+      <div class="cmp-rows">${rows.join('')}</div>
+      <div class="cmp-foot">
+        <div class="cmp-line"><span>${esc(pa.name)}</span><b>${sa.name.replace('阶梯','')}</b><span>·</span><span>${esc(ca.name)}</span><span>·</span><span>${esc(pa.crop || '—')}</span></div>
+        <div class="cmp-line"><span>${esc(pb.name)}</span><b>${sb.name.replace('阶梯','')}</b><span>·</span><span>${esc(cb.name)}</span><span>·</span><span>${esc(pb.crop || '—')}</span></div>
+        <div class="cmp-note">${esc(pa.name)}的面积是${esc(pb.name)}的 <b>${ratio(pa.area, pb.area)}</b>；${esc(pb.name)}的人口是${esc(pa.name)}的 <b>${ratio(pb.pop, pa.pop)}</b>。</div>
+      </div>
+      <button class="cmp-close" data-cmp-close>关闭</button>`;
+    CMP_PAIR = a + '|' + b;
+    const close = box.querySelector('[data-cmp-close]');
+    if (close) close.onclick = () => { CMP_PAIR = null; dlg.close(); syncURL(); };
+    if (dlg.showModal) dlg.showModal();
+    syncURL();
+    // 点遮罩关闭
+    dlg.onclick = (e) => { if (e.target === dlg) { CMP_PAIR = null; dlg.close(); syncURL(); } };
   }
 
   function renderPanel() {
@@ -2205,8 +2301,12 @@
       <div class="rule"></div>
       <h3>气候与地势</h3>
       <div class="note-box"><b>${clim.name}</b> · ${clim.key}<br/>${clim.plant} · ${clim.farm}</div>
-      <button class="btn ghost" id="focusProv">在地图上放大这一省</button>`;
+      <div class="btn-row">
+        <button class="btn ghost" id="focusProv">在地图上放大这一省</button>
+        <button class="btn ghost" id="cmpProv">与另一省对比</button>
+      </div>`;
     $('#focusProv').onclick = () => focusProvince(p.name);
+    $('#cmpProv').onclick = () => startCompare(p.name);
   }
 
   function renderLandform() {
@@ -2275,6 +2375,7 @@
         <button class="chip ${!state.iso ? 'is-on' : ''}" data-iso="">关</button>
         <button class="chip ${state.iso === 'jan' ? 'is-on' : ''}" data-iso="jan">1 月</button>
         <button class="chip ${state.iso === 'jul' ? 'is-on' : ''}" data-iso="jul">7 月</button>
+        <button class="chip ${state.iso === 'ppt' ? 'is-on' : ''}" data-iso="ppt">年降水</button>
       </div>
       <div class="note-box"><b>读图提示：</b>地图按「主导气候类型」给省份着色，实际省界内常有过渡，例如陕西南北就横跨两个气候带。</div>`;
     panel.querySelectorAll('[data-iso]').forEach((b) => {
@@ -3403,7 +3504,7 @@
       state.layers = { ...state.layers, ...prefs.layers };
     }
     state.themePinned = !!prefs.themePinned;
-    if (prefs.iso === 'jan' || prefs.iso === 'jul') state.iso = prefs.iso;
+    if (prefs.iso === 'jan' || prefs.iso === 'jul' || prefs.iso === 'ppt') state.iso = prefs.iso;
     if (prefs.bubble === 'pop' || prefs.bubble === 'area') state.bubble = prefs.bubble;
     applyTheme(prefs.theme || 'night', false);
   } else {

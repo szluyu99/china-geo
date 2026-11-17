@@ -376,6 +376,61 @@ class CDP {
     }
     ok(bright[0] + 40 < bright[2], '夜间与白昼主题亮度没有明显差异', bright);
 
+    // 等降水量线：4 条线（200/400/800/1600），400 与 800 加粗
+    const ppt = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="climate"]').click();
+      await new Promise((r) => setTimeout(r, 600));
+      const c = document.querySelector('#map'), g = c.getContext('2d');
+      const off = document.querySelector('[data-iso=""]');
+      if (off) off.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const a = g.getImageData(0, 0, c.width, c.height).data;
+      document.querySelector('[data-iso="ppt"]').click();
+      await new Promise((r) => setTimeout(r, 800));
+      const b = g.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i]-b[i]) + Math.abs(a[i+1]-b[i+1]) + Math.abs(a[i+2]-b[i+2]) > 24) n++;
+      const ls = __DBG.iso('ppt') || [];
+      const lab = __DBG.isoLabels().filter(l => l.placed).length;
+      return { iso: __DBG.state.iso, levels: ls.length, lines: ls.map(l => l.v + ':' + l.n).join(','), changed: n, lab };
+    `);
+    ok(ppt.iso === 'ppt', '年降水量线没有生效', ppt);
+    ok(ppt.levels === 4, '年降水量线应该 4 条（200/400/800/1600）', ppt);
+    ok(ppt.lab >= 4, '年降水量线标注没放上去', ppt);
+    ok(ppt.changed > 5000, '切换年降水量线后画面没变化', ppt);
+
+    // 省际对比：选第一个省 → 点「与另一省对比」→ 再点第二个省 → 弹窗出现对比表
+    const cmp = await cdp.eval(`
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      document.querySelector('#tabs .tab[data-tab="explore"]').click();
+      await new Promise((r) => setTimeout(r, 500));
+      const pick = async (lon, lat) => {
+        const p = __DBG.screen(lon, lat), b = document.querySelector('#map').getBoundingClientRect();
+        const o = { clientX: b.left + p[0], clientY: b.top + p[1], bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1 };
+        const c = document.querySelector('#map');
+        c.dispatchEvent(new PointerEvent('pointerdown', o));
+        c.dispatchEvent(new PointerEvent('pointerup', o));
+        await new Promise((r) => setTimeout(r, 380));
+      };
+      await pick(104.07, 30.57);
+      const hasBtn = !!document.querySelector('#cmpProv');
+      const first = __DBG.state.selected;
+      document.querySelector('#cmpProv').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const hintOn = document.querySelector('#cmpHint').classList.contains('is-on');
+      await pick(113.26, 23.13);
+      await new Promise((r) => setTimeout(r, 500));
+      const dlg = document.querySelector('#cmp');
+      const out = { first, hasBtn, hintOn, open: dlg.open, rows: document.querySelectorAll('#cmp .cmp-row').length,
+        names: [...document.querySelectorAll('#cmp .cmp-name')].map(e => e.textContent).join('/'),
+        note: (document.querySelector('#cmp .cmp-note') || {}).textContent || '' };
+      dlg.close();
+      return out;
+    `);
+    ok(cmp.hasBtn && cmp.hintOn, '省际对比入口或提示不正常', cmp);
+    ok(cmp.open && cmp.rows >= 4, '省际对比弹窗没画出来', cmp);
+    ok(/倍/.test(cmp.note), '省际对比缺少结论文案', cmp);
+
     // 深链接
     await cdp.send('Page.navigate', { url: target.split('?')[0] + '?theme=day&tab=climate&p=' + encodeURIComponent('四川省') });
     await cdp.waitFor('window.__DBG && window.__DBG.state.selected', 20000);
@@ -445,5 +500,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/气泡/动画/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/动画/主题/深链接');
 })();

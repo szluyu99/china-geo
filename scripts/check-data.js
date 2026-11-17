@@ -167,6 +167,25 @@ if (!E || !E.data) {
   }
 }
 
+// ---- 降水站点与等值线 ----
+{
+  const ps = C.precipStations || [];
+  ok(ps.length >= 30, `降水站点偏少：${ps.length}（应 ≥30）`);
+  for (const st of ps) {
+    ok(typeof st.name === 'string' && !!st.name, '降水站点缺 name');
+    ok(Number.isFinite(st.lon) && st.lon > 73 && st.lon < 136, `降水站点经度越界：${st.name} ${st.lon}`);
+    ok(Number.isFinite(st.lat) && st.lat > 17 && st.lat < 54, `降水站点纬度越界：${st.name} ${st.lat}`);
+    ok(Number.isFinite(st.mm) && st.mm > 0, `降水站点缺年降水量：${st.name}`);
+  }
+  const pl = C.precipLevels || [];
+  ok(pl.length === 4 && pl[0] === 200 && pl.includes(400) && pl.includes(800), `降水等值线取值不对：${pl.join(',')}`);
+  const mm = ps.map((x) => x.mm);
+  ok(Math.min(...mm) < 100, '缺少干旱区降水站（应有 <100mm 的站）');
+  ok(Math.max(...mm) > 1600, '缺少强湿润区降水站（应有 >1600mm 的站）');
+  // 经度跨度要够，否则等值线画不出全国尺度
+  ok(Math.max(...ps.map((x) => x.lon)) - Math.min(...ps.map((x) => x.lon)) > 40, '降水站点经度跨度不足');
+}
+
 const kb = (fs.statSync(path.join(root, 'assets/geo.js')).size / 1024).toFixed(0);
 if (fails.length) {
   console.error(`✗ 数据体检失败（${fails.length} 项）`);
