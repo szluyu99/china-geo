@@ -2235,7 +2235,19 @@
       requestAnimationFrame(() => {
         const card = $('#kSrc');
         if (!card) return;
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 卡片可能比一屏还高：直接算 scrollTop 对齐到滚动容器顶部下方 16px，
+        // 不用 scrollIntoView（它对「比视口高的元素 + 嵌套滚动容器」会给出负的 top）
+        const scroller = card.closest('#knowledge') || document.scrollingElement;
+        const go = (smooth) => {
+          const cr = card.getBoundingClientRect();
+          const nr = scroller.getBoundingClientRect();
+          const dy = cr.top - nr.top - 16;
+          if (Math.abs(dy) < 2) return;
+          scroller.scrollTo({ top: scroller.scrollTop + dy, behavior: smooth ? 'smooth' : 'auto' });
+        };
+        go(true);
+        setTimeout(() => go(true), 320);   // 布局稳定后再校一次，避免字体/图片晚到把位置顶偏
+        setTimeout(() => go(false), 780);  // 兜底：强制对齐一次（动画被打断也能到位）
         card.classList.add('is-flash');
         setTimeout(() => card.classList.remove('is-flash'), 1600);
       });

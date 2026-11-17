@@ -337,7 +337,9 @@ class CDP {
       await new Promise((r) => setTimeout(r, 900));
       const c = document.querySelector('#kSrc');
       const b = c ? c.getBoundingClientRect() : null;
+      const kn = document.querySelector('#knowledge');
       return { opened, hasBtn: true, tab: __DBG.state.tab, dlgOpen: document.querySelector('#about').open,
+        top: b ? +b.top.toFixed(1) : null, vh: innerHeight, knTop: kn ? kn.scrollTop : null,
         inView: b ? (b.top > -80 && b.top < innerHeight - 120) : false };
     `);
     ok(jump.opened && jump.hasBtn && !jump.dlgOpen && jump.tab === 'notes', '关于弹窗的数据口径跳转不正常', jump);
