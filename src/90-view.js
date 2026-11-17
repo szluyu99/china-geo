@@ -152,6 +152,19 @@
     $('#aboutBtn').onclick = () => aboutDlg.showModal();
     $('#aboutClose').onclick = () => aboutDlg.close();
     aboutDlg.addEventListener('click', (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
+    // 「看完整数据口径」：关掉弹窗 → 跳速记页 → 滚到那张卡片并高亮一下
+    const jump = $('#aboutJump');
+    if (jump) jump.onclick = () => {
+      aboutDlg.close();
+      setTab('notes');
+      requestAnimationFrame(() => {
+        const card = $('#kSrc');
+        if (!card) return;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('is-flash');
+        setTimeout(() => card.classList.remove('is-flash'), 1600);
+      });
+    };
     aboutDlg.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.stopPropagation(); aboutDlg.close(); }
     });

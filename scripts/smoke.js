@@ -311,6 +311,38 @@ class CDP {
     ok(figs.n === 4 && figs.boxed === 4, '速记页四张示意图没有画出来', figs);
     ok(figs.texts >= 10, '示意图缺少标注', figs);
 
+    // 数据口径卡：来源表 / 算法折叠 / 已知误差都要在
+    const src = await cdp.eval(`
+      const c = document.querySelector('#kSrc');
+      const rows = c ? [...c.querySelectorAll('.k-src-t tbody tr')].map(tr => tr.children[0].textContent) : [];
+      return { has: !!c, rows: rows.length, first: rows[0] || '',
+        methods: c ? c.querySelectorAll('.k-src-m details').length : 0,
+        limits: c ? c.querySelectorAll('.k-src-l li').length : 0,
+        ovX: document.documentElement.scrollWidth - innerWidth };
+    `);
+    ok(src.has && src.rows >= 8, '速记页缺少数据口径表', src);
+    ok(src.methods >= 4 && src.limits >= 3, '数据口径缺少算法说明或已知误差', src);
+    ok(src.ovX === 0, '数据口径表有横向溢出', src);
+
+    // 关于弹窗 →「看完整数据口径」应跳到速记页并滚到卡片
+    const jump = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="explore"]').click();
+      await new Promise((r) => setTimeout(r, 300));
+      document.querySelector('#aboutBtn').click();
+      await new Promise((r) => setTimeout(r, 250));
+      const opened = document.querySelector('#about').open;
+      const btn = document.querySelector('#aboutJump');
+      if (!btn) return { opened, hasBtn: false };
+      btn.click();
+      await new Promise((r) => setTimeout(r, 900));
+      const c = document.querySelector('#kSrc');
+      const b = c ? c.getBoundingClientRect() : null;
+      return { opened, hasBtn: true, tab: __DBG.state.tab, dlgOpen: document.querySelector('#about').open,
+        inView: b ? (b.top > -80 && b.top < innerHeight - 120) : false };
+    `);
+    ok(jump.opened && jump.hasBtn && !jump.dlgOpen && jump.tab === 'notes', '关于弹窗的数据口径跳转不正常', jump);
+    ok(jump.inView, '跳转后没有滚到数据口径卡', jump);
+
     // 等温线：切换后画面变化，且 11 条线都有标注
     const iso = await cdp.eval(`
       // 前面的用例可能停在闯关里，先退出来再切视图
@@ -582,5 +614,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接/口径');
 })();

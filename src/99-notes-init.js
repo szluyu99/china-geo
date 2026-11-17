@@ -183,8 +183,16 @@
       body = `<div class="k-tags">${C.neighbors.map((x) => `<span>${x}</span>`).join('')}</div><div class="k-lead">${n.lead}</div>`;
     } else if (n.kind === 'provinces') {
       body = `<div class="k-table">${C.provinces.map((p) => `<div><b>${p.label}</b><i>${p.short}${p.capital !== '—' ? ' · ' + p.capital : ''}</i></div>`).join('')}</div>`;
+    } else if (n.kind === 'sources') {
+      body = `<div class="k-src">
+        <table class="k-src-t"><thead><tr><th>项目</th><th>取值</th><th>来源与处理</th></tr></thead>
+        <tbody>${C.dataRows.map(([a, b, c]) => `<tr><td>${esc(a)}</td><td><code>${esc(b)}</code></td><td>${esc(c)}</td></tr>`).join('')}</tbody></table>
+        <div class="k-src-m">${C.dataMethods.map(([t, b]) => `<details><summary>${esc(t)}</summary><p>${esc(b)}</p></details>`).join('')}</div>
+        <ul class="k-src-l">${C.dataLimits.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      </div>`;
     }
-    return `<article class="kcard ${n.kind === 'provinces' ? 'span2' : ''}" style="--kc:${color}">
+    const idAttr = n.kind === 'sources' ? ' id="kSrc"' : '';
+    return `<article class="kcard ${n.kind === 'provinces' ? 'span2' : ''}"${idAttr} style="--kc:${color}">
       <h3>${esc(n.title)}</h3>
       ${n.lead && n.kind !== 'neighbors' ? `<div class="k-lead">${esc(n.lead)}</div>` : ''}
       ${body}
