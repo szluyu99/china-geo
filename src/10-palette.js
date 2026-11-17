@@ -198,5 +198,8 @@
         focusCoords(m.coord[0], m.coord[1], 2.4, 0);
       }
     }
+    // ry= 是后写的：setTab 已经把面板画成「最新一年」了，这里要补画一次，否则滑块与地图对不上
+    if (state.railYear != null && state.tab === 'transport') renderPanel();
+    requestDraw();
     syncURL();
   }
