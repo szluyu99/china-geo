@@ -234,6 +234,32 @@ class CDP {
     ok(outline.d > 200 && outline.box > 20, '省份详情没有画出轮廓缩略图', outline);
     ok(outline.bars >= 3, '省份详情缺少排名条', outline);
 
+    // 河流纵剖面：细节页里要有距离—海拔曲线和结论
+    const river = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="water"]').click();
+      await new Promise((r) => setTimeout(r, 450));
+      // 深链接用例可能已经把某条河的详情打开了，先退回列表再点，避免点到「取消选中」
+      const back0 = document.querySelector('#backWater');
+      if (back0) { back0.click(); await new Promise((r) => setTimeout(r, 220)); }
+      const rb = document.querySelector('[data-river="长江"]');
+      if (!rb) return { err: 'no river btn', sel: __DBG.state.selectedRiver, tab: __DBG.state.tab };
+      rb.click();
+      await new Promise((r) => setTimeout(r, 420));
+      const rp = document.querySelector('#panel .rp');
+      const nt = document.querySelector('#panel .rp-note');
+      const info = {
+        has: !!rp,
+        label: rp ? rp.getAttribute('aria-label') : null,
+        dots: rp ? rp.querySelectorAll('circle').length : 0,
+        note: nt ? nt.textContent : null
+      };
+      const back = document.querySelector('#backWater');
+      if (back) back.click();
+      return info;
+    `);
+    ok(river.has && /落差约/.test(river.label || ''), '河流详情缺少纵剖面', river);
+    ok(river.dots >= 8 && /平均坡降/.test(river.note || ''), '河流纵剖面缺少读数', river);
+
     // A4 打印版式：地图高度按 110mm 排，且不横向溢出
     const pr = await cdp.eval(`
       const r = document.querySelector('#mapwrap').getBoundingClientRect();
@@ -502,5 +528,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/动画/主题/深链接');
+  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接');
 })();

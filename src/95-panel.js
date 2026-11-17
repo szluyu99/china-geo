@@ -379,6 +379,58 @@
     });
   }
 
+
+  /* 河流纵剖面：从源头到入海口的距离—海拔曲线。
+     用海拔网格读数，只为建立「上游落差大、中下游平缓」的直觉，
+     所以只给一位有效数字级的精度，不做水量、流域面积这类没数据的推断。 */
+  function riverProfile(r) {
+    const pts = r.path;
+    if (!pts || pts.length < 3) return { svg: '', km: 0, drop: 0, grad: 0 };
+    const rad = Math.PI / 180;
+    const hav = (a, b) => {
+      const dLat = (b[1] - a[1]) * rad, dLon = (b[0] - a[0]) * rad;
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
+      return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+    };
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hav(pts[i - 1], pts[i]));
+    // 路径只有几十个控制点，逐段直线距离会明显偏短（长江会算成 ~3900 km）。
+    // 所以几何用累计距离，展示用的全长优先取数据里写好的真实长度。
+    const km = cum[cum.length - 1] || 1;
+    const realKm = (() => {
+      const m = /(\d[\d,.]*)/.exec(r.length || '');
+      const v = m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+      return v > km * 1.05 ? v : km;   // 只有明显更长才认为它是真实长度
+    })();
+    const elev = pts.map((p) => Math.max(0, elevAt(p[0], p[1])));
+    const hi = Math.max(...elev), lo = Math.min(...elev);
+    const W = 300, H = 92, L = 8, R = 8, T = 10, B = 16;
+    const x = (d) => L + (km ? d / km : 0) * (W - L - R);
+    const y = (e) => T + (1 - (hi === lo ? 0.5 : (e - lo) / (hi - lo))) * (H - T - B);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(cum[i]).toFixed(1)},${y(elev[i]).toFixed(1)}`).join(' ');
+    const area = `${line} L${x(km).toFixed(1)},${(H - B).toFixed(1)} L${L},${(H - B).toFixed(1)} Z`;
+    const dots = [];
+    for (let i = 0; i < pts.length - 1; i += Math.max(1, Math.floor(pts.length / 9))) {
+      dots.push(`<circle cx="${x(cum[i]).toFixed(1)}" cy="${y(elev[i]).toFixed(1)}" r="1.6"><title>距源头约 ${Math.round(cum[i])} km · 海拔约 ${Math.round(elev[i])} m</title></circle>`);
+    }
+    const src = `<text x="${L}" y="${(H - 3).toFixed(0)}" class="rp-t">源头</text>`;
+    const mid = `<text x="${(W / 2).toFixed(0)}" y="${(H - 3).toFixed(0)}" class="rp-t" text-anchor="middle">${Math.round(realKm / 2)} km</text>`;
+    const mout = `<text x="${W - R}" y="${(H - 3).toFixed(0)}" class="rp-t" text-anchor="end">入海口</text>`;
+    const drop = Math.round(hi), grad = realKm ? (drop / realKm) : 0;
+    const svg = `<svg class="rp" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"
+      aria-label="${esc(r.name)}纵剖面：全长约 ${Math.round(realKm)} 公里，落差约 ${drop} 米">
+      <path d="${area}" class="rp-area"></path>
+      <path d="${line}" class="rp-line"></path>
+      ${dots.join('')}
+      <circle cx="${L}" cy="${y(elev[0]).toFixed(1)}" r="2.4" class="rp-end"></circle>
+      <circle cx="${x(km).toFixed(1)}" cy="${y(elev[elev.length - 1]).toFixed(1)}" r="2.4" class="rp-end"></circle>
+      ${src}${mid}${mout}
+      <text x="${W - R}" y="${(T - 2).toFixed(0)}" class="rp-t" text-anchor="end">海拔 ${hi} m</text>
+    </svg>
+    <p class="rp-note">纵剖面由 0.25° 高程网格采样：全长约 <b>${Math.round(realKm)} km</b>，源头至入海落差约 <b>${drop} m</b>，平均坡降约 <b>${grad.toFixed(2)}‰</b>。坡度数字越小，说明河道越平缓——这也是航运与水电落差的直观来源。</p>`;
+    return { svg, km, drop, grad };
+  }
+
   function riverDetailHTML(r) {
     if (!r) return '';
     return `
@@ -388,6 +440,7 @@
         <div class="stat"><span class="k">地位</span><span class="v" style="font-size:12px;line-height:1.5">${r.rank}</span></div>
       </div>
       <p><b style="color:var(--ink-soft)">源头</b>　${r.source}<br/><b style="color:var(--ink-soft)">注入</b>　${r.mouth}<br/><b style="color:var(--ink-soft)">流经</b>　${r.through}</p>
+      ${riverProfile(r).svg}
       <div class="note-box">${r.note}</div>`;
   }
 
