@@ -33,7 +33,7 @@
   const state = {
     tab: 'explore',
     fill: 'region',
-    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false },
+    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false, rail: true, ports: true, hubs: true, bases: true, channels: true },
     selected: null,
     hover: null,
     iso: null,        // 'jan' | 'jul' | 'ppt' | null 等温线 / 等降水量线
@@ -42,6 +42,8 @@
     hoverMountain: null,
     hoverRiver: null,
     selectedMountain: null,
+    selectedInfra: null,   // 交通/能源：{kind, name}
+    hoverInfra: null,
     selectedRiver: null,
     highlightClimate: null,
     hi: null,

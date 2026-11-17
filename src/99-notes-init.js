@@ -360,6 +360,8 @@
     agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
     water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
     quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    transport: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: false, hill: false, rail: true, ports: true, hubs: true }, pill: ['东密西疏', '路网与港口'], tip: '彩色的线是铁路干线，方块是沿海港口，同心圆是铁路枢纽。点线或列表看详情。' },
+    energy: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: false, hill: false, bases: true, channels: true }, pill: ['资源在西', '消费在东'], tip: '圆点是能源基地，虚线带箭头的是跨区通道。点右侧类型只看一类。' },
     notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: [], tip: '' }
   };
 
@@ -385,6 +387,10 @@
       state.layers = { ...state.preQuizLayers };
       state.preQuizLayers = null;
     }
+    // 新图层键（交通/能源）在旧的本地配置里没有：按本视图的 preset 补默认值
+    for (const kk of ['rail', 'ports', 'hubs', 'bases', 'channels']) {
+      if (state.layers[kk] === undefined && preset.layers[kk] !== undefined) state.layers[kk] = preset.layers[kk];
+    }
     state.highlightClimate = null;
     state.highlightCrop = null;
     state.hi = null;
@@ -393,6 +399,8 @@
     state.selected = null;
     state.selectedRiver = null;
     state.selectedMountain = null;
+    state.selectedInfra = null;
+    state.hoverInfra = null;
     state.hover = null;
     state.quizMarks = {};
     if (tab !== 'quiz' && state.quiz) state.quiz = null;
@@ -461,6 +469,28 @@
     if (state.fill === 'climate') {
       note.textContent = '气候';
       box.innerHTML = C.climates.map((c) => row('climate', c.id, c.color, c.name, `${count((p) => p.climate === c.id)} 省`)).join('');
+      bindLegend();
+      return;
+    }
+    if (state.tab === 'transport') {
+      note.textContent = '交通';
+      const nHsd = RAIL_LINES.filter((l) => l.kind === 'hsd').length;
+      box.innerHTML = [
+        row('railkind', 'hsd', RAIL_KIND.hsd.color, '高速铁路', `${nHsd} 条`),
+        row('railkind', 'conv', RAIL_KIND.conv.color, '普速干线', `${RAIL_LINES.length - nHsd} 条`),
+        `<div class="legend-row"><span class="sw" style="background:${swatch('#8fc3d4')}"></span>沿海港口<small>${PORTS.length} 个</small></div>`,
+        `<div class="legend-row"><span class="sw sw-ring"></span>铁路枢纽<small>${RAIL_HUBS.length} 个</small></div>`
+      ].join('');
+      bindLegend();
+      return;
+    }
+    if (state.tab === 'energy') {
+      note.textContent = '能源';
+      box.innerHTML = Object.keys(E_TYPE).map((t) =>
+        row('etype', t, E_TYPE[t].color, E_TYPE[t].name,
+          `${E_BASES.filter((b) => b.type === t).length} 个基地`)).join('')
+        + Object.keys(CH_KIND).map((k2) => row('echkind', k2, CH_KIND[k2].color, CH_KIND[k2].name, ''))
+        .join('');
       bindLegend();
       return;
     }

@@ -206,6 +206,8 @@
     if (state.tab === 'climate') return renderClimate();
     if (state.tab === 'water') return renderWater();
     if (state.tab === 'agri') return renderAgri();
+    if (state.tab === 'transport') return renderTransport();
+    if (state.tab === 'energy') return renderEnergy();
     return renderExplore();
   }
 

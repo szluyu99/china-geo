@@ -60,6 +60,7 @@
     drawSelection();
     drawIsotherms();
     drawBubbles();
+    drawInfra();
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     drawLabels();
@@ -77,6 +78,7 @@
       state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', JSON.stringify(state.hi || ''), state.selected || '',
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
+      state.hoverInfra || '', JSON.stringify(state.selectedInfra || ''),
       state.iso || '', state.bubble || '',
       state.forceLabelsUntil > performance.now() ? 1 : 0,
       state.quiz && state.quiz.active ? 1 : 0

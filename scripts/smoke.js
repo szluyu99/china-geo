@@ -131,7 +131,7 @@ class CDP {
     ok(base.canvas, '地图画布没有尺寸');
     ok(base.labels >= 28, '省份标签缺失', base.labels);
     ok(base.overlaps === 0, '省份标签重叠', base.overlaps);
-    ok(base.tabs === 7, '视图数量不对', base.tabs);
+    ok(base.tabs === 9, '视图数量不对', base.tabs);
     ok(base.themes === 3, '主题数量不对', base.themes);
     ok(base.overflow, '出现横向溢出');
 
@@ -601,6 +601,63 @@ class CDP {
     `);
     ok(ex && ex.w === 1600 && ex.bytes > 50000, '导出 PNG 失败', ex);
 
+    // 交通视图
+    await cdp.send('Page.navigate', { url: target.split('?')[0] });
+    await cdp.waitFor('window.__DBG && window.__DBG.DEBUG.labels.length > 0', 20000);
+    await sleep(700);
+    const tp = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="transport"]').click();
+      await new Promise((r) => setTimeout(r, 900));
+      const rail = document.querySelectorAll('[data-rail]');
+      rail[0].click();
+      await new Promise((r) => setTimeout(r, 400));
+      const ov = window.__DBG.overlaps();
+      return {
+        tab: window.__DBG.state.tab,
+        h2: (document.querySelector('#panel h2') || {}).textContent || '',
+        rail: rail.length,
+        port: document.querySelectorAll('[data-port]').length,
+        legend: document.querySelectorAll('#legend .legend-row').length,
+        sel: window.__DBG.state.selectedInfra,
+        note: [...document.querySelectorAll('#panel .note-box')].map((x) => x.textContent).join(' '),
+        ov: ov.n, labels: window.__DBG.DEBUG.labels.length,
+        ovX: document.documentElement.scrollWidth - window.innerWidth
+      };
+    `);
+    ok(tp.tab === 'transport' && /铁路与港口/.test(tp.h2), '交通视图没切换成功', tp);
+    ok(tp.rail >= 14 && tp.port >= 10, '交通图层数量不对', tp);
+    ok(tp.legend >= 4, '交通图例条目太少', tp);
+    ok(tp.sel && tp.sel.kind === 'rail' && /经过/.test(tp.note), '点铁路没有出详情', tp);
+    ok(tp.ov === 0 && tp.labels > 30 && tp.ovX === 0, '交通视图标签或布局有问题', tp);
+
+    // 能源视图
+    const en = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="energy"]').click();
+      await new Promise((r) => setTimeout(r, 900));
+      const before = document.querySelectorAll('[data-base]').length;
+      const cb = document.querySelector('[data-etype="coal"]');
+      cb.click();
+      await new Promise((r) => setTimeout(r, 450));
+      return {
+        tab: window.__DBG.state.tab,
+        h2: (document.querySelector('#panel h2') || {}).textContent || '',
+        base: before,
+        routes: document.querySelectorAll('[data-route]').length,
+        coal: document.querySelectorAll('[data-base]').length,
+        hi: window.__DBG.state.hi,
+        off: document.querySelectorAll('#legend .legend-row.is-off').length,
+        ov: window.__DBG.overlaps().n,
+        ovX: document.documentElement.scrollWidth - window.innerWidth,
+        lyrT: getComputedStyle(document.querySelector('.lyr-transport')).display,
+        lyrE: getComputedStyle(document.querySelector('.lyr-energy')).display
+      };
+    `);
+    ok(en.tab === 'energy' && /能源从哪里来/.test(en.h2), '能源视图没切换成功', en);
+    ok(en.base >= 28 && en.routes >= 5, '能源图层数量不对', en);
+    ok(en.coal > 0 && en.coal < en.base && en.hi && en.hi.key === 'coal', '能源类型筛选没生效', en);
+    ok(en.off >= 5, '能源类型筛选没有把图例置灰', en);
+    ok(en.ov === 0 && en.ovX === 0 && en.lyrT === 'none' && en.lyrE !== 'none', '能源视图布局或图层可见性不对', en);
+
     ok(cdp.errors.length === 0, '控制台有报错', cdp.errors.slice(0, 3));
   } catch (e) {
     fails.push(e.message);
@@ -614,5 +671,5 @@ class CDP {
     for (const f of fails) console.error('  - ' + f);
     process.exit(1);
   }
-  console.log('✓ 冒烟测试通过：画布/标签/七视图/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接/口径');
+  console.log('✓ 冒烟测试通过：画布/标签/九视图/交通/能源/点击/拼音搜索/城市图层/鼠标读数/错题本/晕渲/轮廓/示意图/等温线/等降水线/气泡/对比/纵剖面/动画/主题/深链接/口径');
 })();

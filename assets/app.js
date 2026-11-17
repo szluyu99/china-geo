@@ -33,7 +33,7 @@
   const state = {
     tab: 'explore',
     fill: 'region',
-    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false },
+    layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false, rail: true, ports: true, hubs: true, bases: true, channels: true },
     selected: null,
     hover: null,
     iso: null,        // 'jan' | 'jul' | 'ppt' | null 等温线 / 等降水量线
@@ -42,6 +42,8 @@
     hoverMountain: null,
     hoverRiver: null,
     selectedMountain: null,
+    selectedInfra: null,   // 交通/能源：{kind, name}
+    hoverInfra: null,
     selectedRiver: null,
     highlightClimate: null,
     hi: null,
@@ -652,6 +654,7 @@
     drawSelection();
     drawIsotherms();
     drawBubbles();
+    drawInfra();
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     drawLabels();
@@ -669,6 +672,7 @@
       state.dimOthers || '', state.highlightClimate || '', state.highlightCrop || '', JSON.stringify(state.hi || ''), state.selected || '',
       state.selectedRiver || '', state.selectedMountain || '',
       state.hoverMountain || '', state.hoverRiver || '',
+      state.hoverInfra || '', JSON.stringify(state.selectedInfra || ''),
       state.iso || '', state.bubble || '',
       state.forceLabelsUntil > performance.now() ? 1 : 0,
       state.quiz && state.quiz.active ? 1 : 0
@@ -1446,6 +1450,9 @@
         });
       }
     }
+
+    // 交通 / 能源：港口、枢纽、基地（画在省名之后，自动避让）
+    drawInfraLabels();
   }
 
 
@@ -1765,7 +1772,289 @@
     return null;
   }
 
-  /* ------------------------------------------------------------
+/* ------------------------------------------------------------
+     交通与能源
+     两张图都只画「走向」：铁路是城市之间的连线，能源通道是起讫之间的示意路径。
+     数据在 content.js，手工整理，不表示里程与运营状态。
+     ------------------------------------------------------------ */
+  const RAIL_LINES = C.railLines || [];
+  const RAIL_HUBS = C.railHubs || [];
+  const PORTS = C.ports || [];
+  const RAIL_KIND = C.railKind || {};
+  const E_BASES = C.energyBases || [];
+  const E_TYPE = C.energyType || {};
+  const E_ROUTES = C.energyRoutes || [];
+  const CH_KIND = C.channelKind || {};
+
+  function infraPix(lon, lat) {
+    const [wx, wy] = albers(lon, lat);
+    return [sx(wx), sy(wy)];
+  }
+
+  /* 图层是否可见：tab 决定「这张图画什么」，layer 决定「画不画」 */
+  function infraOn(kind) {
+    if (state.tab === 'transport') return kind === 'rail' ? !!state.layers.rail
+      : kind === 'ports' ? !!state.layers.ports : !!state.layers.hubs;
+    if (state.tab === 'energy') return kind === 'bases' ? !!state.layers.bases : !!state.layers.channels;
+    return false;
+  }
+
+  function infraDim(kind, key) {
+    const hi = state.hi;
+    if (!hi) return 1;
+    if (hi.kind !== kind) return 1;
+    return hi.key === key ? 1 : 0.14;
+  }
+
+  function drawInfra() {
+    if (state.tab === 'transport') {
+      if (state.layers.rail) drawRailLines();
+      if (state.layers.ports) drawPorts();
+      if (state.layers.hubs) drawHubs();
+    } else if (state.tab === 'energy') {
+      if (state.layers.bases) drawBases();
+      if (state.layers.channels) drawChannels();
+    }
+  }
+
+  function railWidth(l) {
+    const hi = state.hoverInfra === 'rail:' + l.name
+      || (state.selectedInfra && state.selectedInfra.kind === 'rail' && state.selectedInfra.name === l.name);
+    return hi ? 2.9 : (l.kind === 'hsd' ? 2.1 : 1.2);
+  }
+
+  function drawRailLines() {
+    const k = baseS * state.view.k;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const l of RAIL_LINES) {
+      const kind = RAIL_KIND[l.kind] || { color: '#999' };
+      const w = railWidth(l);
+      const a = infraDim('railkind', l.kind) * (l.kind === 'hsd' ? 0.96 : 0.72);
+      ctx.beginPath();
+      l.path.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.globalAlpha = 0.7 * a;
+      ctx.strokeStyle = TH.coastShadow;
+      ctx.lineWidth = (w + 1.5) / k;
+      ctx.stroke();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = kind.color;
+      ctx.lineWidth = w / k;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPorts() {
+    const k = baseS * state.view.k;
+    const r = 2.6 / k;
+    for (const p of PORTS) {
+      const [x, y] = albers(p.lon, p.lat);
+      const a = infraDim('port', p.name);
+      const hi = state.hoverInfra === 'port:' + p.name;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = TH.coastShadow;
+      ctx.fillRect(x - r - 0.8 / k, y - r - 0.8 / k, (r + 0.8 / k) * 2, (r + 0.8 / k) * 2);
+      ctx.fillStyle = hi ? '#ffffff' : '#8fc3d4';
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHubs() {
+    const k = baseS * state.view.k;
+    for (const h of RAIL_HUBS) {
+      const [x, y] = albers(h.lon, h.lat);
+      const a = infraDim('hub', h.name);
+      const hi = state.hoverInfra === 'hub:' + h.name;
+      const rr = (hi ? 6.2 : 4.8) / k;
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.arc(x, y, rr, 0, Math.PI * 2);
+      ctx.fillStyle = hexA('#0b1016', 0.55);
+      ctx.fill();
+      ctx.lineWidth = 1.6 / k;
+      ctx.strokeStyle = '#e3ac55';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, 1.5 / k, 0, Math.PI * 2);
+      ctx.fillStyle = '#f0d8a8';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBases() {
+    const k = baseS * state.view.k;
+    for (const b of E_BASES) {
+      const t = E_TYPE[b.type] || { color: '#999', name: b.type };
+      const [x, y] = albers(b.lon, b.lat);
+      const hi = state.hoverInfra === 'base:' + b.name
+        || (state.selectedInfra && state.selectedInfra.kind === 'base' && state.selectedInfra.name === b.name);
+      const rr = (hi ? 6.0 : 4.4) / k;
+      ctx.globalAlpha = infraDim('etype', b.type) * (hi ? 1 : 0.92);
+      ctx.beginPath();
+      ctx.arc(x, y, rr, 0, Math.PI * 2);
+      ctx.fillStyle = t.color;
+      ctx.fill();
+      ctx.lineWidth = 1.1 / k;
+      ctx.strokeStyle = TH.coastShadow;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawChannels() {
+    const k = baseS * state.view.k;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([6 / k, 5 / k]);
+    for (const r of E_ROUTES) {
+      const kind = CH_KIND[r.kind] || { color: '#aaa' };
+      const a = infraDim('echkind', r.kind) * 0.9;
+      ctx.beginPath();
+      r.path.forEach(([lon, lat], i) => {
+        const [x, y] = albers(lon, lat);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = kind.color;
+      ctx.globalAlpha = 0.2 * a;
+      ctx.lineWidth = 5 / k;
+      ctx.stroke();
+      ctx.globalAlpha = a;
+      ctx.lineWidth = 1.7 / k;
+      ctx.stroke();
+      // 末端箭头：把「送电/送气」的方向画出来
+      const n = r.path.length;
+      const [x1, y1] = albers(r.path[n - 2][0], r.path[n - 2][1]);
+      const [x2, y2] = albers(r.path[n - 1][0], r.path[n - 1][1]);
+      const ang = Math.atan2(y2 - y1, x2 - x1);
+      const s = 7 / k;
+      ctx.setLineDash([]);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = kind.color;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - s * Math.cos(ang - 0.4), y2 - s * Math.sin(ang - 0.4));
+      ctx.lineTo(x2 - s * Math.cos(ang + 0.4), y2 - s * Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fill();
+      ctx.setLineDash([6 / k, 5 / k]);
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  /* 站点标签：港口 / 枢纽 / 能源基地，跟在省名之后画，自动避让 */
+  function drawInfraLabels() {
+    const k = baseS * state.view.k;
+    if (state.tab === 'transport') {
+      if (state.layers.ports) {
+        for (const p of PORTS) {
+          const [x, y] = infraPix(p.lon, p.lat);
+          drawText(p.name, x + 6, y + 3, {
+            font: '9.5px ' + FONT_SANS, color: TH.capText, align: 'left', base: 'middle', halo: true, id: 'port'
+          });
+        }
+      }
+      if (state.layers.hubs) {
+        for (const h of RAIL_HUBS) {
+          const [x, y] = infraPix(h.lon, h.lat);
+          drawText(h.name, x + 8, y - 7, {
+            font: '10.5px ' + FONT_SANS, color: TH.hubText || TH.capText, align: 'left', base: 'middle', halo: true, id: 'hub'
+          });
+        }
+      }
+    } else if (state.tab === 'energy') {
+      if (state.layers.bases) {
+        for (const b of E_BASES) {
+          const [x, y] = infraPix(b.lon, b.lat);
+          const t = E_TYPE[b.type] || { name: '' };
+          drawText(b.name, x + 6, y - 6, {
+            font: '9.5px ' + FONT_SANS, color: TH.capText, align: 'left', base: 'middle', halo: true, id: 'base'
+          });
+          if (k > 0 && state.layers.labels) {
+            // 类型只在放大时补一行，避免缩小时糊成一片
+            if (state.view.k >= 1.6) drawText(t.name, x + 6, y + 5, {
+              font: '8.5px ' + FONT_SANS, color: TH.seaText, align: 'left', base: 'middle', halo: true, id: 'base'
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /* 命中：优先级 基地 > 港口 > 枢纽，半径 11px */
+  function infraAt(px, py) {
+    if (state.tab === 'energy' && state.layers.bases) {
+      let best = null, bd = 1e9;
+      for (const b of E_BASES) {
+        const [x, y] = infraPix(b.lon, b.lat);
+        const d = Math.hypot(x - px, y - py);
+        if (d < 11 && d < bd) { bd = d; best = { kind: 'base', item: b }; }
+      }
+      if (best) return best;
+    }
+    if (state.tab === 'transport') {
+      if (state.layers.ports) {
+        let best = null, bd = 1e9;
+        for (const p of PORTS) {
+          const [x, y] = infraPix(p.lon, p.lat);
+          const d = Math.hypot(x - px, y - py);
+          if (d < 11 && d < bd) { bd = d; best = { kind: 'port', item: p }; }
+        }
+        if (best) return best;
+      }
+      if (state.layers.hubs) {
+        let best = null, bd = 1e9;
+        for (const h of RAIL_HUBS) {
+          const [x, y] = infraPix(h.lon, h.lat);
+          const d = Math.hypot(x - px, y - py);
+          if (d < 11 && d < bd) { bd = d; best = { kind: 'hub', item: h }; }
+        }
+        if (best) return best;
+      }
+      if (state.layers.rail) {
+        // 铁路线：取路径上离鼠标最近的采样点
+        let best = null, bd = 9;
+        for (const l of RAIL_LINES) {
+          const k = baseS * state.view.k;
+          for (let i = 1; i < l.path.length; i++) {
+            const [x1, y1] = infraPix(l.path[i - 1][0], l.path[i - 1][1]);
+            const [x2, y2] = infraPix(l.path[i][0], l.path[i][1]);
+            const dx = x2 - x1, dy = y2 - y1;
+            const len2 = dx * dx + dy * dy;
+            let t = len2 ? ((px - x1) * dx + (py - y1) * dy) / len2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(x1 + dx * t - px, y1 + dy * t - py);
+            if (d < bd) { bd = d; best = { kind: 'rail', item: l }; }
+          }
+          void k;
+        }
+        if (best) return best;
+      }
+    }
+    if (state.tab === 'energy' && state.layers.channels) {
+      let best = null, bd = 8;
+      for (const r of E_ROUTES) {
+        for (let i = 1; i < r.path.length; i++) {
+          const [x1, y1] = infraPix(r.path[i - 1][0], r.path[i - 1][1]);
+          const [x2, y2] = infraPix(r.path[i][0], r.path[i][1]);
+          const dx = x2 - x1, dy = y2 - y1;
+          const len2 = dx * dx + dy * dy;
+          let t = len2 ? ((px - x1) * dx + (py - y1) * dy) / len2 : 0;
+          t = Math.max(0, Math.min(1, t));
+          const d = Math.hypot(x1 + dx * t - px, y1 + dy * t - py);
+          if (d < bd) { bd = d; best = { kind: 'channel', item: r }; }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }  /* ------------------------------------------------------------
      视图控制
      ------------------------------------------------------------ */
   function setView(v, animateMs = 0) {
@@ -1975,6 +2264,28 @@
         return;
       }
     }
+    // 交通 / 能源：铁路、港口、枢纽、基地、通道
+    if (state.tab === 'transport' || state.tab === 'energy') {
+      const hit = infraAt(ox, oy);
+      if (hit) {
+        let sub;
+        if (hit.kind === 'rail') {
+          const provs = [...new Set(hit.item.path.map((q) => provNameAt(q[0], q[1])).filter(Boolean))];
+          sub = [RAIL_KIND[hit.item.kind].name, `经过 ${provs.length} 省区`];
+        } else if (hit.kind === 'channel') sub = [CH_KIND[hit.item.kind].name, '跨区通道'];
+        else if (hit.kind === 'base') sub = [E_TYPE[hit.item.type].name, infraProvinceOf(hit.item) || '—'];
+        else sub = [hit.kind === 'port' ? '沿海港口' : '铁路枢纽', infraProvinceOf(hit.item) || '—'];
+        if (state.hoverInfra !== hit.item.name) {
+          state.hoverInfra = hit.item.name;
+          state.hoverMountain = null; state.hoverRiver = null; state.hover = null;
+          requestDraw();
+        }
+        canvas.classList.add('is-pointing');
+        showTip(ox, oy, hit.item.name, sub);
+        return;
+      }
+      if (state.hoverInfra) { state.hoverInfra = null; requestDraw(); }
+    }
     const name = provinceAt(clientX, clientY);
     if (state.hoverMountain || state.hoverRiver) {
       state.hoverMountain = null; state.hoverRiver = null; requestDraw();
@@ -2026,6 +2337,18 @@
   }
 
   function handleClick(clientX, clientY) {
+    // 交通 / 能源：先认铁路、港口、枢纽、基地、通道
+    if (state.tab === 'transport' || state.tab === 'energy') {
+      const rc0 = canvas.getBoundingClientRect();
+      const hit = infraAt(clientX - rc0.left, clientY - rc0.top);
+      if (hit) {
+        const name = hit.item.name;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.name === name ? null : { kind: hit.kind, name };
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
+        renderPanel(); requestDraw(); syncURL();
+        return;
+      }
+    }
     const ov = overlayAt(clientX, clientY);
     if (ov && state.tab !== 'quiz') {
       if (ov.type === 'mountain') {
@@ -2052,9 +2375,9 @@
     const name = tinyAt(clientX, clientY) || provinceAt(clientX, clientY);
     if (!name) {
       if (state.compare) { state.compare = null; syncCompareHint(); requestDraw(); return; }
-      if (state.selected || state.selectedRiver || state.selectedMountain) {
-        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
-        renderPanel(); requestDraw();
+      if (state.selected || state.selectedRiver || state.selectedMountain || state.selectedInfra) {
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null; state.selectedInfra = null;
+        renderPanel(); requestDraw(); syncURL();
       }
       return;
     }
@@ -2300,6 +2623,8 @@
     if (state.tab === 'climate') return renderClimate();
     if (state.tab === 'water') return renderWater();
     if (state.tab === 'agri') return renderAgri();
+    if (state.tab === 'transport') return renderTransport();
+    if (state.tab === 'energy') return renderEnergy();
     return renderExplore();
   }
 
@@ -2935,7 +3260,219 @@
     $('#switchMode').onclick = () => { state.quiz = null; renderQuiz(); };
   }
 
-  /* ------------------------------------------------------------
+/* ------------------------------------------------------------
+     交通 / 能源 右侧面板
+     ------------------------------------------------------------ */
+
+  function infraProvinceOf(item) {
+    return provNameAt(item.lon, item.lat);
+  }
+
+  function infraDetailHTML() {
+    const si = state.selectedInfra;
+    if (!si) return '';
+    const it = infraSelectedItem();
+    if (!it) return '';
+    if (si.kind === 'rail') {
+      const kind = RAIL_KIND[it.kind] || { name: '铁路' };
+      const provs = [...new Set(it.path.map((p) => provNameAt(p[0], p[1])).filter(Boolean))];
+      const kn = RAIL_HUBS.filter((h) => it.path.some((p) => Math.hypot(p[0] - h.lon, p[1] - h.lat) < 0.6));
+      return `<div class="note-box">
+        <b>${esc(it.name)}</b>　<span class="chip">${esc(kind.name)}</span>
+        <div class="infra-meta">经过 ${provs.length} 个省级行政区：${provs.map(esc).join('、')}</div>
+        <div>${esc(it.note)}</div>
+        ${kn.length ? `<div class="infra-meta">沿线主要枢纽：${kn.map((h) => esc(h.name)).join('、')}</div>` : ''}
+        <div class="infra-hint">线位只示意「经过哪些城市」，不代表里程、车次与运营状态。</div>
+      </div>`;
+    }
+    if (si.kind === 'port') {
+      return `<div class="note-box">
+        <b>${esc(it.name)}</b>　<span class="chip">沿海港口</span>
+        <div class="infra-meta">所在：${esc(infraProvinceOf(it) || '—')}　${it.lon.toFixed(2)}°E · ${it.lat.toFixed(2)}°N</div>
+        <div>${esc(it.note)}</div>
+      </div>`;
+    }
+    if (si.kind === 'hub') {
+      return `<div class="note-box">
+        <b>${esc(it.name)}</b>　<span class="chip">铁路枢纽</span>
+        <div class="infra-meta">所在：${esc(infraProvinceOf(it) || '—')}</div>
+        <div>${esc(it.note)}</div>
+      </div>`;
+    }
+    if (si.kind === 'base') {
+      const t = E_TYPE[it.type] || { name: it.type };
+      return `<div class="note-box">
+        <b>${esc(it.name)}</b>　<span class="chip">${esc(t.name)}</span>
+        <div class="infra-meta">所在：${esc(infraProvinceOf(it) || '—')}　${it.lon.toFixed(2)}°E · ${it.lat.toFixed(2)}°N</div>
+        <div>${esc(it.note)}</div>
+      </div>`;
+    }
+    const k = CH_KIND[it.kind] || { name: '能源通道' };
+    return `<div class="note-box">
+      <b>${esc(it.name)}</b>　<span class="chip">${esc(k.name)}</span>
+      <div>${esc(it.note)}</div>
+      <div class="infra-hint">通道画的是起讫与大致路径，不表示长度与输量。</div>
+    </div>`;
+  }
+
+  function renderTransport() {
+    const k = baseS * state.view.k;
+    const hsd = RAIL_LINES.filter((l) => l.kind === 'hsd').length;
+    const conv = RAIL_LINES.length - hsd;
+    panel.innerHTML = `
+      <div class="eyebrow">交通</div>
+      <h2>铁路与港口</h2>
+      <p class="lead">路网和港口几乎是人口与地形的复写：东部密、西部疏；沿海一串大港，把工厂和海外市场连在一起。</p>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">铁路营业里程</span><span class="v">16<small>万 km 量级</small></span></div>
+        <div class="stat"><span class="k">高速铁路</span><span class="v">4.6<small>万 km 量级</small></span></div>
+        <div class="stat"><span class="k">本图铁路</span><span class="v">${RAIL_LINES.length}<small>条（高铁 ${hsd} · 普速 ${conv}）</small></span></div>
+        <div class="stat"><span class="k">沿海大港</span><span class="v">${PORTS.length}<small>个</small></span></div>
+      </div>
+      <div class="rule"></div>
+      <h3>三条规律</h3>
+      <div class="note-box">
+        <b>东密西疏</b>：路网密度跟着人口密度走。胡焕庸线以东集中了全国九成以上的人口，铁路也最密；青藏高原只有青藏线一条干线。<br/>
+        <b>枢纽都是十字</b>：郑州（京广×陇海）、武汉（京广×沿江）、徐州（陇海×京沪）、兰州（陇海×兰新）——两条大干线交叉的地方就是枢纽。<br/>
+        <b>港口连着腹地</b>：上海、宁波舟山靠长江与沪昆；连云港是陇海线的出海口；秦皇岛守着大秦铁路——港口背后总有一条把货送到海边的铁路。
+      </div>
+      <div class="rule"></div>
+      <h3>铁路干线（${RAIL_LINES.length} 条）</h3>
+      <div class="list" id="railList">
+        ${RAIL_LINES.map((l) => {
+          const kind = RAIL_KIND[l.kind] || { name: '' };
+          const on = state.selectedInfra && state.selectedInfra.kind === 'rail' && state.selectedInfra.name === l.name;
+          return `<button class="list-item ${on ? 'is-on' : ''}" data-rail="${esc(l.name)}">
+            <span class="li-top"><span class="li-dot" style="background:${kind.color}"></span>
+              <span class="li-name">${esc(l.name)}</span><span class="li-tag">${esc(kind.name)}</span></span>
+            <span class="li-desc">${esc(l.note)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div class="rule"></div>
+      <h3>沿海港口（${PORTS.length} 个）</h3>
+      <div class="list" id="portList">
+        ${PORTS.map((p) => {
+          const on = state.selectedInfra && state.selectedInfra.kind === 'port' && state.selectedInfra.name === p.name;
+          return `<button class="list-item ${on ? 'is-on' : ''}" data-port="${esc(p.name)}">
+            <span class="li-top"><span class="li-dot" style="background:#8fc3d4"></span>
+              <span class="li-name">${esc(p.name)}</span><span class="li-tag">${esc(infraProvinceOf(p) || '')}</span></span>
+            <span class="li-desc">${esc(p.note)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      ${infraDetailHTML()}
+      <div class="note-box"><b>为什么港口都在北边？</b>不是的——大连、天津、青岛在渤海与黄海，上海往南还有宁波舟山、厦门、深圳、湛江。港口的位置取决于「背后有没有大河或铁路把货送过来」，而不只是纬度。</div>
+      <p class="panel-foot">铁路里程与港口吞吐量为公开的量级说法；本图只画走向与位置，不作为运营依据。</p>`;
+
+    panel.querySelectorAll('[data-rail]').forEach((b) => {
+      b.onclick = () => {
+        const name = b.dataset.rail;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.kind === 'rail' && state.selectedInfra.name === name
+          ? null : { kind: 'rail', name };
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
+        renderPanel(); requestDraw(); syncURL();
+      };
+    });
+    panel.querySelectorAll('[data-port]').forEach((b) => {
+      b.onclick = () => {
+        const name = b.dataset.port;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.kind === 'port' && state.selectedInfra.name === name
+          ? null : { kind: 'port', name };
+        state.selected = null;
+        renderPanel(); requestDraw(); syncURL();
+      };
+    });
+    void k;
+  }
+
+  function renderEnergy() {
+    const types = Object.keys(E_TYPE);
+    const count = (t) => E_BASES.filter((b) => b.type === t).length;
+    const active = state.hi && state.hi.kind === 'etype' ? state.hi.key : null;
+    panel.innerHTML = `
+      <div class="eyebrow">能源</div>
+      <h2>能源从哪里来</h2>
+      <p class="lead">资源在西北与西南，消费在东南沿海。于是有了三条方向相反的巨流：北煤南运、西电东送、西气东输。</p>
+      <div class="stat-grid">
+        <div class="stat"><span class="k">煤炭占能源消费</span><span class="v">55<small>% 左右</small></span></div>
+        <div class="stat"><span class="k">非化石能源</span><span class="v">≈20<small>%</small></span></div>
+        <div class="stat"><span class="k">本图基地</span><span class="v">${E_BASES.length}<small>个</small></span></div>
+        <div class="stat"><span class="k">跨区通道</span><span class="v">${E_ROUTES.length}<small>条</small></span></div>
+      </div>
+      <div class="rule"></div>
+      <h3>点类型只看这一类</h3>
+      <div class="chips infra-chips">
+        ${types.map((t) => `<button class="chip ${active === t ? 'is-on' : ''}" data-etype="${t}">
+          <i style="background:${E_TYPE[t].color}"></i>${esc(E_TYPE[t].name)} ${count(t)}</button>`).join('')}
+        ${active ? '<button class="chip" data-etype="">全部</button>' : ''}
+      </div>
+      <div class="rule"></div>
+      <h3>主要基地（${E_BASES.length} 个）</h3>
+      <div class="list" id="baseList">
+        ${E_BASES.filter((b) => !active || b.type === active).map((b) => {
+          const t = E_TYPE[b.type] || { name: '', color: '#999' };
+          const on = state.selectedInfra && state.selectedInfra.kind === 'base' && state.selectedInfra.name === b.name;
+          return `<button class="list-item ${on ? 'is-on' : ''}" data-base="${esc(b.name)}">
+            <span class="li-top"><span class="li-dot" style="background:${t.color}"></span>
+              <span class="li-name">${esc(b.name)}</span><span class="li-tag">${esc(t.name)}</span></span>
+            <span class="li-desc">${esc(b.note)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div class="rule"></div>
+      <h3>跨区通道（${E_ROUTES.length} 条）</h3>
+      <div class="list" id="routeList">
+        ${E_ROUTES.map((r) => {
+          const k = CH_KIND[r.kind] || { name: '', color: '#aaa' };
+          const on = state.selectedInfra && state.selectedInfra.kind === 'channel' && state.selectedInfra.name === r.name;
+          return `<button class="list-item ${on ? 'is-on' : ''}" data-route="${esc(r.name)}">
+            <span class="li-top"><span class="li-dot" style="background:${k.color}"></span>
+              <span class="li-name">${esc(r.name)}</span><span class="li-tag">${esc(k.name)}</span></span>
+            <span class="li-desc">${esc(r.note)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      ${infraDetailHTML()}
+      <div class="note-box"><b>为什么能源要「搬家」？</b>煤、油、气、水、风、光都集中在中西部与北部，工业和人口却在东南。输电、输气、运煤三条通道一起，才把西部的资源变成东部的电力与暖气。</div>
+      <p class="panel-foot">占比为公开资料的量级说法；基地位置取所在城市，只表示大致方位，不作为选址依据。</p>`;
+
+    panel.querySelectorAll('[data-etype]').forEach((b) => {
+      b.onclick = () => {
+        const t = b.dataset.etype || null;
+        state.hi = t ? { kind: 'etype', key: t } : null;
+        renderLegend(); renderPanel(); requestDraw();
+      };
+    });
+    panel.querySelectorAll('[data-base]').forEach((b) => {
+      b.onclick = () => {
+        const name = b.dataset.base;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.kind === 'base' && state.selectedInfra.name === name
+          ? null : { kind: 'base', name };
+        state.selected = null;
+        renderPanel(); requestDraw(); syncURL();
+      };
+    });
+    panel.querySelectorAll('[data-route]').forEach((b) => {
+      b.onclick = () => {
+        const name = b.dataset.route;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.kind === 'channel' && state.selectedInfra.name === name
+          ? null : { kind: 'channel', name };
+        state.selected = null;
+        renderPanel(); requestDraw(); syncURL();
+      };
+    });
+  }
+
+  function infraSelectedItem() {
+    const si = state.selectedInfra;
+    if (!si) return null;
+    if (si.kind === 'rail') return RAIL_LINES.find((l) => l.name === si.name) || null;
+    if (si.kind === 'port') return PORTS.find((l) => l.name === si.name) || null;
+    if (si.kind === 'hub') return RAIL_HUBS.find((l) => l.name === si.name) || null;
+    if (si.kind === 'base') return E_BASES.find((l) => l.name === si.name) || null;
+    return E_ROUTES.find((l) => l.name === si.name) || null;
+  }  /* ------------------------------------------------------------
      知识速记
      ------------------------------------------------------------ */
   /* ------------------------------------------------------------
@@ -3297,6 +3834,8 @@
     agri: { fill: 'crop', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['农业分区', '400 mm 线与熟制'], tip: '按主导作物给省份着色；400 mm 年等降水量线以西，种植业让位于草原畜牧。' },
     water: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: true, lines: false, monsoon: true, hill: false }, pill: ['外流区为主', '自西向东'], tip: '河流大多自西向东注入太平洋，这是地势决定的。点河流看详细资料。' },
     quiz: { fill: 'region', layers: { labels: false, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: ['点击作答', '满分 10 分'], tip: '找省份题会隐藏名称。答错会标出正确位置。' },
+    transport: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: false, hill: false, rail: true, ports: true, hubs: true }, pill: ['东密西疏', '路网与港口'], tip: '彩色的线是铁路干线，方块是沿海港口，同心圆是铁路枢纽。点线或列表看详情。' },
+    energy: { fill: 'region', layers: { labels: true, capitals: false, cities: false, mountains: false, rivers: false, lines: false, monsoon: false, hill: false, bases: true, channels: true }, pill: ['资源在西', '消费在东'], tip: '圆点是能源基地，虚线带箭头的是跨区通道。点右侧类型只看一类。' },
     notes: { fill: 'region', layers: { labels: true, capitals: false, mountains: false, rivers: false, lines: false, monsoon: true, hill: false }, pill: [], tip: '' }
   };
 
@@ -3322,6 +3861,10 @@
       state.layers = { ...state.preQuizLayers };
       state.preQuizLayers = null;
     }
+    // 新图层键（交通/能源）在旧的本地配置里没有：按本视图的 preset 补默认值
+    for (const kk of ['rail', 'ports', 'hubs', 'bases', 'channels']) {
+      if (state.layers[kk] === undefined && preset.layers[kk] !== undefined) state.layers[kk] = preset.layers[kk];
+    }
     state.highlightClimate = null;
     state.highlightCrop = null;
     state.hi = null;
@@ -3330,6 +3873,8 @@
     state.selected = null;
     state.selectedRiver = null;
     state.selectedMountain = null;
+    state.selectedInfra = null;
+    state.hoverInfra = null;
     state.hover = null;
     state.quizMarks = {};
     if (tab !== 'quiz' && state.quiz) state.quiz = null;
@@ -3398,6 +3943,28 @@
     if (state.fill === 'climate') {
       note.textContent = '气候';
       box.innerHTML = C.climates.map((c) => row('climate', c.id, c.color, c.name, `${count((p) => p.climate === c.id)} 省`)).join('');
+      bindLegend();
+      return;
+    }
+    if (state.tab === 'transport') {
+      note.textContent = '交通';
+      const nHsd = RAIL_LINES.filter((l) => l.kind === 'hsd').length;
+      box.innerHTML = [
+        row('railkind', 'hsd', RAIL_KIND.hsd.color, '高速铁路', `${nHsd} 条`),
+        row('railkind', 'conv', RAIL_KIND.conv.color, '普速干线', `${RAIL_LINES.length - nHsd} 条`),
+        `<div class="legend-row"><span class="sw" style="background:${swatch('#8fc3d4')}"></span>沿海港口<small>${PORTS.length} 个</small></div>`,
+        `<div class="legend-row"><span class="sw sw-ring"></span>铁路枢纽<small>${RAIL_HUBS.length} 个</small></div>`
+      ].join('');
+      bindLegend();
+      return;
+    }
+    if (state.tab === 'energy') {
+      note.textContent = '能源';
+      box.innerHTML = Object.keys(E_TYPE).map((t) =>
+        row('etype', t, E_TYPE[t].color, E_TYPE[t].name,
+          `${E_BASES.filter((b) => b.type === t).length} 个基地`)).join('')
+        + Object.keys(CH_KIND).map((k2) => row('echkind', k2, CH_KIND[k2].color, CH_KIND[k2].name, ''))
+        .join('');
       bindLegend();
       return;
     }

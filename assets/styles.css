@@ -1211,3 +1211,22 @@ dialog#about::backdrop { background: rgb(0 0 0 / 0.55); backdrop-filter: blur(2p
 .cmp-n.cmp-long { font-family: var(--font-sans); font-size: 10.5px; line-height: 1.55; white-space: normal; }
 .iso-note { border-left: 2px solid var(--jade); }
 .cmp-caveat { color: var(--dim); font-size: 10.5px; line-height: 1.5; }
+
+/* ---------------------------------------------------------------
+   交通 / 能源
+   --------------------------------------------------------------- */
+.layers label.lyr-transport, .layers label.lyr-energy { display: none; }
+body[data-tab="transport"] .layers label.lyr-transport { display: flex; }
+body[data-tab="energy"] .layers label.lyr-energy { display: flex; }
+
+.legend-row .sw.sw-ring { background: transparent; border: 1.5px solid var(--gold); border-radius: 50%; box-shadow: none; }
+.legend-row.is-on .sw.sw-ring { box-shadow: 0 0 0 2px rgb(var(--gold-rgb) / 0.2); }
+.legend-row.is-off .sw.sw-ring { border-color: rgb(var(--gold-rgb) / 0.35); }
+
+.infra-chips .chip i {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 5px; vertical-align: 1px; flex: none;
+}
+.infra-meta { font-size: 10px; color: var(--dim); letter-spacing: .02em; margin-top: 4px; }
+.infra-hint { font-size: 9.5px; color: var(--dim); margin-top: 5px; opacity: .85; }
+.panel-foot { font-size: 9.5px; line-height: 1.7; color: var(--dim); margin-top: 10px; }

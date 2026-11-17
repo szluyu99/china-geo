@@ -207,11 +207,59 @@ for (const p of popBase) {
 const grow = popBase.filter((p) => p.pop > p.pop2010).length;
 ok(grow >= 15 && grow <= 25, `十年人口增长省份数异常：${grow}（31 省中）`);
 
+// 交通：铁路干线、枢纽、港口
+const rails = C.railLines || [];
+ok(rails.length >= 14, `铁路干线偏少：${rails.length}（应 ≥14）`);
+ok(C.railKind && C.railKind.hsd && C.railKind.conv, '铁路类型 railKind 缺 hsd/conv');
+for (const l of rails) {
+  ok(typeof l.name === 'string' && !!l.name, '铁路缺 name');
+  ok(!!C.railKind[l.kind], `铁路类型未知：${l.name} ${l.kind}`);
+  ok(Array.isArray(l.path) && l.path.length >= 4, `铁路控制点太少：${l.name}（${(l.path || []).length}，应 ≥4）`);
+  for (const pt of l.path) {
+    ok(Number.isFinite(pt[0]) && pt[0] > 73 && pt[0] < 136, `铁路经度越界：${l.name} ${pt[0]}`);
+    ok(Number.isFinite(pt[1]) && pt[1] > 17 && pt[1] < 54, `铁路纬度越界：${l.name} ${pt[1]}`);
+  }
+  for (let i = 1; i < l.path.length; i++) {
+    ok(l.path[i][0] !== l.path[i - 1][0] || l.path[i][1] !== l.path[i - 1][1], `铁路控制点重复：${l.name} 第 ${i} 段`);
+  }
+}
+const hubs = C.railHubs || [];
+ok(hubs.length >= 8, `铁路枢纽偏少：${hubs.length}`);
+const ports = C.ports || [];
+ok(ports.length >= 10, `沿海港口偏少：${ports.length}`);
+for (const p of ports) {
+  ok(Number.isFinite(p.lon) && p.lon > 108 && p.lon < 135, `港口经度越界：${p.name} ${p.lon}`);
+  ok(Number.isFinite(p.lat) && p.lat > 17 && p.lat < 42, `港口纬度越界：${p.name} ${p.lat}`);
+}
+const nHsd = rails.filter((l) => l.kind === 'hsd').length;
+ok(nHsd >= 8 && nHsd <= 11, `高速铁路条数异常：${nHsd}`);
+
+// 能源：基地与通道
+const bases = C.energyBases || [];
+ok(bases.length >= 28, `能源基地偏少：${bases.length}（应 ≥28）`);
+ok(C.energyType && Object.keys(C.energyType).length >= 6, '能源类型 energyType 应 ≥6 类');
+for (const b of bases) {
+  ok(!!C.energyType[b.type], `能源类型未知：${b.name} ${b.type}`);
+  ok(Number.isFinite(b.lon) && b.lon > 73 && b.lon < 136, `能源基地经度越界：${b.name} ${b.lon}`);
+  ok(Number.isFinite(b.lat) && b.lat > 17 && b.lat < 54, `能源基地纬度越界：${b.name} ${b.lat}`);
+  ok(typeof b.note === 'string' && b.note.length > 4, `能源基地缺说明：${b.name}`);
+}
+const routes = C.energyRoutes || [];
+ok(routes.length >= 5, `能源通道偏少：${routes.length}`);
+ok(C.channelKind && C.channelKind.power && C.channelKind.gas, '通道类型 channelKind 缺 power/gas');
+for (const r of routes) {
+  ok(!!C.channelKind[r.kind], `通道类型未知：${r.name} ${r.kind}`);
+  ok(Array.isArray(r.path) && r.path.length >= 3, `通道控制点太少：${r.name}`);
+}
+for (const t of Object.keys(C.energyType || {})) {
+  ok(bases.some((b) => b.type === t), `能源类型没有实例：${t}`);
+}
+
 const kb = (fs.statSync(path.join(root, 'assets/geo.js')).size / 1024).toFixed(0);
 if (fails.length) {
   console.error(`✗ 数据体检失败（${fails.length} 项）`);
   for (const f of fails) console.error('  - ' + f);
   process.exit(1);
 }
-console.log(`✓ 数据体检通过：${P.length} 省 · 面积 ${areaSum.toFixed(0)} 万km² · 人口 ${popSum} 万 · 六普 ${baseSum.toFixed(0)} 万 · ${facts.length} 道题 · ${(C.rivers || []).length} 条河 · ${(C.mountains || []).length} 座山 · geo ${kb}KB`);
+console.log(`✓ 数据体检通过：${P.length} 省 · 面积 ${areaSum.toFixed(0)} 万km² · 人口 ${popSum} 万 · 六普 ${baseSum.toFixed(0)} 万 · ${facts.length} 道题 · ${(C.rivers || []).length} 条河 · ${(C.mountains || []).length} 座山 · ${(C.railLines || []).length} 条铁路 · ${(C.energyBases || []).length} 个能源基地 · geo ${kb}KB`);
 if (warns.length) console.log(`  （提示 ${warns.length} 条：${warns.slice(0, 3).join('；')}${warns.length > 3 ? ' …' : ''}）`);

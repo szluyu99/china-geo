@@ -208,6 +208,28 @@
         return;
       }
     }
+    // 交通 / 能源：铁路、港口、枢纽、基地、通道
+    if (state.tab === 'transport' || state.tab === 'energy') {
+      const hit = infraAt(ox, oy);
+      if (hit) {
+        let sub;
+        if (hit.kind === 'rail') {
+          const provs = [...new Set(hit.item.path.map((q) => provNameAt(q[0], q[1])).filter(Boolean))];
+          sub = [RAIL_KIND[hit.item.kind].name, `经过 ${provs.length} 省区`];
+        } else if (hit.kind === 'channel') sub = [CH_KIND[hit.item.kind].name, '跨区通道'];
+        else if (hit.kind === 'base') sub = [E_TYPE[hit.item.type].name, infraProvinceOf(hit.item) || '—'];
+        else sub = [hit.kind === 'port' ? '沿海港口' : '铁路枢纽', infraProvinceOf(hit.item) || '—'];
+        if (state.hoverInfra !== hit.item.name) {
+          state.hoverInfra = hit.item.name;
+          state.hoverMountain = null; state.hoverRiver = null; state.hover = null;
+          requestDraw();
+        }
+        canvas.classList.add('is-pointing');
+        showTip(ox, oy, hit.item.name, sub);
+        return;
+      }
+      if (state.hoverInfra) { state.hoverInfra = null; requestDraw(); }
+    }
     const name = provinceAt(clientX, clientY);
     if (state.hoverMountain || state.hoverRiver) {
       state.hoverMountain = null; state.hoverRiver = null; requestDraw();
@@ -259,6 +281,18 @@
   }
 
   function handleClick(clientX, clientY) {
+    // 交通 / 能源：先认铁路、港口、枢纽、基地、通道
+    if (state.tab === 'transport' || state.tab === 'energy') {
+      const rc0 = canvas.getBoundingClientRect();
+      const hit = infraAt(clientX - rc0.left, clientY - rc0.top);
+      if (hit) {
+        const name = hit.item.name;
+        state.selectedInfra = state.selectedInfra && state.selectedInfra.name === name ? null : { kind: hit.kind, name };
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
+        renderPanel(); requestDraw(); syncURL();
+        return;
+      }
+    }
     const ov = overlayAt(clientX, clientY);
     if (ov && state.tab !== 'quiz') {
       if (ov.type === 'mountain') {
@@ -285,9 +319,9 @@
     const name = tinyAt(clientX, clientY) || provinceAt(clientX, clientY);
     if (!name) {
       if (state.compare) { state.compare = null; syncCompareHint(); requestDraw(); return; }
-      if (state.selected || state.selectedRiver || state.selectedMountain) {
-        state.selected = null; state.selectedRiver = null; state.selectedMountain = null;
-        renderPanel(); requestDraw();
+      if (state.selected || state.selectedRiver || state.selectedMountain || state.selectedInfra) {
+        state.selected = null; state.selectedRiver = null; state.selectedMountain = null; state.selectedInfra = null;
+        renderPanel(); requestDraw(); syncURL();
       }
       return;
     }
