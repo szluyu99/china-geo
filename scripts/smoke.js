@@ -260,6 +260,29 @@ class CDP {
     ok(river.has && /落差约/.test(river.label || ''), '河流详情缺少纵剖面', river);
     ok(river.dots >= 8 && /平均坡降/.test(river.note || ''), '河流纵剖面缺少读数', river);
 
+    // 河流条目数（13 条：长江/黄河/珠江/黑龙江/雅鲁藏布江/塔里木河/松花江/辽河/海河/钱塘江/闽江/南渡江/浊水溪）
+    const rivers = await cdp.eval(`
+      const back0 = document.querySelector('#backWater');
+      if (back0) { back0.click(); await new Promise((r) => setTimeout(r, 240)); }
+      const btns = [...document.querySelectorAll('#panel [data-river]')];
+      const names = btns.map((b) => b.getAttribute('data-river'));
+      // 新补的海河也要能打开纵剖面
+      const hai = document.querySelector('#panel [data-river="海河"]');
+      let haiOk = false;
+      if (hai) {
+        hai.click();
+        await new Promise((r) => setTimeout(r, 420));
+        const rp = document.querySelector('#panel .rp');
+        const nt = document.querySelector('#panel .rp-note') || {};
+        haiOk = !!rp && /落差约/.test(rp.getAttribute('aria-label') || '') && /平均坡降/.test(nt.textContent || '');
+        const b2 = document.querySelector('#backWater'); if (b2) b2.click();
+      }
+      return { n: btns.length, names, hai: haiOk };
+    `);
+    ok(rivers.n >= 13 && ['海河', '钱塘江', '南渡江', '浊水溪'].every((x) => rivers.names.includes(x)),
+      '河流清单少于 13 条或缺少新补的河：' + (rivers.names || []).join(','), rivers);
+    ok(rivers.hai, '海河缺少纵剖面读数', rivers);
+
     // A4 打印版式：地图高度按 110mm 排，且不横向溢出
     const pr = await cdp.eval(`
       const r = document.querySelector('#mapwrap').getBoundingClientRect();
@@ -428,6 +451,9 @@ class CDP {
     // 省际对比：选第一个省 → 点「与另一省对比」→ 再点第二个省 → 弹窗出现对比表
     const cmp = await cdp.eval(`
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      // 前面的缩放用例可能把视图留在 1.35 倍，点 picking 之前先按 0 复位，
+      // 否则 113.26°E 会落到画布外，点不中广东（测试自身的前置条件，不是页面 bug）
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
       document.querySelector('#tabs .tab[data-tab="explore"]').click();
       await new Promise((r) => setTimeout(r, 500));
       const pick = async (lon, lat) => {
@@ -447,7 +473,7 @@ class CDP {
       await pick(113.26, 23.13);
       await new Promise((r) => setTimeout(r, 500));
       const dlg = document.querySelector('#cmp');
-      const out = { first, hasBtn, hintOn, open: dlg.open, rows: document.querySelectorAll('#cmp .cmp-row').length,
+      const out = { dbgK: __DBG.state.view.k, dbgSel2: __DBG.state.selected, dbgRect: (() => { const bb = document.querySelector('#map').getBoundingClientRect(); return [Math.round(bb.width), Math.round(bb.height)]; })(), dbgIso: __DBG.state.iso, dbgRiver: __DBG.state.selectedRiver, first, hasBtn, hintOn, open: dlg.open, rows: document.querySelectorAll('#cmp .cmp-row').length,
         names: [...document.querySelectorAll('#cmp .cmp-name')].map(e => e.textContent).join('/'),
         note: (document.querySelector('#cmp .cmp-note') || {}).textContent || '',
         longRows: [...document.querySelectorAll('#cmp .cmp-long')].map(e => e.textContent) };

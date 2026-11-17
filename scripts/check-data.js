@@ -71,10 +71,17 @@ for (const [i, f] of facts.entries()) {
   ok(typeof f.why === 'string' && f.why.length > 8, `第 ${i + 1} 题缺解析（why）`);
 }
 
-ok((C.rivers || []).length >= 5, '河流数据不足 5 条');
+ok((C.rivers || []).length >= 13, '河流数据不足 13 条');
 for (const r of C.rivers || []) {
-  ok(Array.isArray(r.path) && r.path.length >= 2, `河流 ${r.name} 的 path 少于 2 个点`);
+  ok(Array.isArray(r.path) && r.path.length >= 4, `河流 ${r.name} 的 path 少于 4 个点`);
   ok(r.path.every(([lon, lat]) => lon > 70 && lon < 140 && lat > 15 && lat < 55), `河流 ${r.name} 的坐标越界`);
+  ok(/km/.test(r.length || ''), `河流 ${r.name} 缺少长度口径（要含 km，纵剖面用它算坡降）`);
+  ok(typeof r.note === 'string' && r.note.length > 12, `河流 ${r.name} 缺说明`);
+  // 控制点不得重复相邻（会让纵剖面的 haversine 出现 0 段）
+  for (let i = 1; i < r.path.length; i += 1) {
+    ok(r.path[i][0] !== r.path[i - 1][0] || r.path[i][1] !== r.path[i - 1][1],
+      `河流 ${r.name} 的第 ${i} 个控制点与上一点重合`);
+  }
 }
 ok((C.mountains || []).length >= 15, '山脉数据不足 15 座');
 for (const m of C.mountains || []) {
