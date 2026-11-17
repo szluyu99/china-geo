@@ -70,6 +70,62 @@
     showTip(window.innerWidth / 2, 96, '对比模式', [state.compare + ' → 再点一个省']);
   }
 
+
+  /* 省界内的河流 / 山脉：按几何归属统计。
+     河流看控制点落在哪个省界内，山脉看点位落在哪个省界内；只有示意精度——
+     河道只有几十个控制点，一条河跨省再多几个弯就可能漏，所以文案里说明是「流经」。 */
+  let GEO_GROUPS = null;
+  const FEAT_BOX = new Map();
+  for (const f of GEO.features) {
+    if (f.kind === 'line') continue;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const poly of f.polygons) for (const ring of poly) for (const p of ring) {
+      if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+    }
+    FEAT_BOX.set(f.name, [x0, y0, x1, y1]);
+  }
+  function provNameAt(lon, lat) {
+    for (const f of GEO.features) {
+      if (f.kind === 'line') continue;
+      const b = FEAT_BOX.get(f.name);
+      if (lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3]) continue;
+      for (const poly of f.polygons) {
+        const ring = poly[0]; // 只测外环，飞地/群岛不参与
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+          if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        if (inside) return f.name;
+      }
+    }
+    return null;
+  }
+  function geoGroups() {
+    if (GEO_GROUPS) return GEO_GROUPS;
+    const rivers = new Map(), mts = new Map();
+    for (const r of C.rivers) {
+      for (const p of r.path) {
+        const n = provNameAt(p[0], p[1]);
+        if (!n) continue;
+        if (!rivers.has(n)) rivers.set(n, []);
+        if (!rivers.get(n).includes(r.name)) rivers.get(n).push(r.name);
+      }
+    }
+    for (const m of C.mountains) {
+      if (!m.coord) continue;
+      const n = provNameAt(m.coord[0], m.coord[1]);
+      if (!n) continue;
+      if (!mts.has(n)) mts.set(n, []);
+      if (!mts.get(n).includes(m.name)) mts.get(n).push(m.name);
+    }
+    GEO_GROUPS = { rivers, mts };
+    return GEO_GROUPS;
+  }
+  const provRivers = (name) => (geoGroups().rivers.get(name) || []).join('、') || '—';
+  const provMountains = (name) => (geoGroups().mts.get(name) || []).join('、') || '—';
+
   function openCompare(a, b) {
     const pa = PROV_BY_NAME[a], pb = PROV_BY_NAME[b];
     const dlg = $('#cmp');
@@ -90,6 +146,15 @@
     row('人口密度', fmt(ra.density) + ' 人/km²', fmt(rb.density) + ' 人/km²', '全国第 ' + ra.densityRank, '全国第 ' + rb.densityRank, ra.density, rb.density);
     row('面积占国土', (pa.area / 960 * 100).toFixed(2) + '%', (pb.area / 960 * 100).toFixed(2) + '%', '', '', pa.area, pb.area);
     row('人口占全国', (pa.pop / 141178 * 100).toFixed(1) + '%', (pb.pop / 141178 * 100).toFixed(1) + '%', '', '', pa.pop, pb.pop);
+    // 水系与山脉：没有可比的数值，就并列展示（差值不是重点）
+    const textRow = (label, va, vb) => rows.push(
+      `<div class="cmp-row is-text"><div class="cmp-cell"><span class="cmp-n cmp-long">${esc(va)}</span></div>` +
+      `<div class="cmp-lab">${label}</div>` +
+      `<div class="cmp-cell is-b"><span class="cmp-n cmp-long">${esc(vb)}</span></div></div>`);
+    const rvA = provRivers(pa.name), rvB = provRivers(pb.name);
+    const mtA = provMountains(pa.name), mtB = provMountains(pb.name);
+    if (rvA !== '—' || rvB !== '—') textRow('主要河流', rvA, rvB);
+    if (mtA !== '—' || mtB !== '—') textRow('主要山脉', mtA, mtB);
     const ca = CLIM[pa.climate], cb = CLIM[pb.climate];
     const sa = STEP[pa.step], sb = STEP[pb.step];
     // 倍数必须带方向：谁大就说谁是几倍，不能只报一个比值
@@ -111,7 +176,7 @@
       <div class="cmp-foot">
         <div class="cmp-line"><span>${esc(pa.name)}</span><b>${sa.name.replace('阶梯','')}</b><span>·</span><span>${esc(ca.name)}</span><span>·</span><span>${esc(pa.crop || '—')}</span></div>
         <div class="cmp-line"><span>${esc(pb.name)}</span><b>${sb.name.replace('阶梯','')}</b><span>·</span><span>${esc(cb.name)}</span><span>·</span><span>${esc(pb.crop || '—')}</span></div>
-        <div class="cmp-note">${areaTxt}；${popTxt}。</div>
+        <div class="cmp-note">${areaTxt}；${popTxt}。<br/><span class="cmp-caveat">河流按图谱收录的 ${C.rivers.length} 条、山脉按 ${C.mountains.length} 座归属；未收录的支流不列。</span></div>
       </div>
       <button class="cmp-close" data-cmp-close>关闭</button>`;
     CMP_PAIR = a + '|' + b;
@@ -281,6 +346,21 @@
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+
+  /* 等温线 / 等降水量线的读图说明：跟着当前选中的层变 */
+  function isoNoteText() {
+    if (state.iso === 'ppt') {
+      return '<b>年降水量线：</b><b>800 mm</b> 对应水田与旱地，大致就是秦岭—淮河；<b>400 mm</b> 是半湿润与半干旱、也是种植业与畜牧业的分界；<b>200 mm</b> 以内属干旱区；<b>1600 mm</b> 只出现在华南沿海。线越密，说明降水随位置变化越快。';
+    }
+    if (state.iso === 'jan') {
+      return '<b>1 月等温线：</b>0℃ 线大致沿秦岭—淮河，线以南冬季均温在 0℃ 以上；<b>−20℃</b> 线只在黑龙江北部与内蒙古东北角；<b>8℃</b> 线只出现在南岭以南的华南沿海。';
+    }
+    if (state.iso === 'jul') {
+      return '<b>7 月等温线：</b>全国普遍高温，<b>18℃</b> 线大致沿青藏高原东南缘；<b>28℃</b> 线覆盖华南、江南与四川盆地；<b>10℃</b> 线只出现在青藏高原腹地，是夏季最凉的地方。';
+    }
+    return '<b>等值线怎么读：</b>点上面的「1 月 / 7 月 / 年降水」切换。每两层之间的差是固定的（气温 4℃、降水 200 mm），所以线画得越密，说明这个方向上变化越快。';
+  }
+
   function renderClimate() {
     panel.innerHTML = `
       <div class="eyebrow">气候</div>
@@ -297,6 +377,7 @@
       <div class="note-box"><b>秦岭—淮河线：</b>1 月 0℃ 等温线、800 mm 年等降水量线大致从这里穿过。线以北是暖温带、旱地小麦；线以南是亚热带、水田稻作。</div>
       <div class="note-box"><b>干湿地带：</b>从东南沿海向西北，年降水量由 1600 mm 降到 50 mm 以下，植被依次是森林 → 草原 → 荒漠。</div>
       <div class="note-box"><b>等温线：</b>由 36 个站点气温插值、再按海拔订正得到，能看出青藏高原的闭合低温区与吐鲁番盆地的高温区。</div>
+      <div class="note-box iso-note" id="isoNote">${isoNoteText()}</div>
       <div class="chips" role="group" aria-label="等温线">
         <span class="chip-label">等温线</span>
         <button class="chip ${!state.iso ? 'is-on' : ''}" data-iso="">关</button>

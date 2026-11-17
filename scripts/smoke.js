@@ -449,7 +449,8 @@ class CDP {
       const dlg = document.querySelector('#cmp');
       const out = { first, hasBtn, hintOn, open: dlg.open, rows: document.querySelectorAll('#cmp .cmp-row').length,
         names: [...document.querySelectorAll('#cmp .cmp-name')].map(e => e.textContent).join('/'),
-        note: (document.querySelector('#cmp .cmp-note') || {}).textContent || '' };
+        note: (document.querySelector('#cmp .cmp-note') || {}).textContent || '',
+        longRows: [...document.querySelectorAll('#cmp .cmp-long')].map(e => e.textContent) };
       dlg.close();
       return out;
     `);
@@ -458,6 +459,22 @@ class CDP {
     ok(/倍/.test(cmp.note), '省际对比缺少结论文案', cmp);
     // 倍数必须带方向：面积大的是四川，应说成「四川的面积是广东的 2.70 倍」
     ok(/四川省的面积是广东省的 2\.70 倍/.test(cmp.note), '省际对比的倍数方向反了：' + cmp.note, cmp);
+    ok(cmp.longRows.length >= 2 && cmp.longRows.includes('长江'), '省际对比缺少河流/山脉行：' + cmp.longRows.join(','), cmp);
+
+    // 等值线读图说明：切「年降水」后要出现 800 mm / 400 mm 的解读
+    const isoNote = await cdp.eval(`
+      document.querySelector('#tabs .tab[data-tab="climate"]').click();
+      await new Promise((r) => setTimeout(r, 420));
+      const b = document.querySelector('[data-iso="ppt"]');
+      if (!b) return { err: 'no ppt chip' };
+      b.click();
+      await new Promise((r) => setTimeout(r, 420));
+      const n = document.querySelector('#isoNote');
+      const t = n ? n.textContent : '';
+      const off = document.querySelector('[data-iso=""]'); if (off) off.click();
+      return { has: !!n, txt: t.slice(0, 80), ok: /800 mm/.test(t) && /400 mm/.test(t) };
+    `);
+    ok(isoNote.has && isoNote.ok, '年降水没有读图说明', isoNote);
 
     // 深链接
     await cdp.send('Page.navigate', { url: target.split('?')[0] + '?theme=day&tab=climate&p=' + encodeURIComponent('四川省') });
